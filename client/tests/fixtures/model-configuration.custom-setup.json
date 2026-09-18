@@ -1,0 +1,125 @@
+{
+  "editable": true,
+  "setups": [
+    {
+      "platform": "anthropic",
+      "platform_label": "Claude",
+      "performance_tier": "high",
+      "tier_label": "Max",
+      "label": "Claude \u2014 Max",
+      "roles": [
+        {
+          "role": "reasoning",
+          "platform": null,
+          "model": "claude-opus-5",
+          "reasoning_effort": "max",
+          "requested_reasoning_effort": null,
+          "max_tokens": 64000,
+          "routing_reason": "Planning and high-level analysis use the configured reasoning role.",
+          "model_variable": "ANTHROPIC_REASONING_MODEL",
+          "reasoning_variable": "ANTHROPIC_REASONING_EFFORT",
+          "resolved_from_legacy_variable": false
+        },
+        {
+          "role": "coding",
+          "platform": null,
+          "model": "claude-sonnet-5",
+          "reasoning_effort": "high",
+          "requested_reasoning_effort": null,
+          "max_tokens": 128000,
+          "routing_reason": "Feature implementation and substantive fixes use the coding role.",
+          "model_variable": "ANTHROPIC_CODING_MODEL",
+          "reasoning_variable": "ANTHROPIC_CODING_REASONING_EFFORT",
+          "resolved_from_legacy_variable": false
+        },
+        {
+          "role": "review",
+          "platform": null,
+          "model": "claude-sonnet-5",
+          "reasoning_effort": "high",
+          "requested_reasoning_effort": null,
+          "max_tokens": 48000,
+          "routing_reason": "Independent implementation review uses the configured review role.",
+          "model_variable": "ANTHROPIC_REVIEW_MODEL",
+          "reasoning_variable": "ANTHROPIC_REVIEW_REASONING_EFFORT",
+          "resolved_from_legacy_variable": false
+        },
+        {
+          "role": "scoped_fix",
+          "platform": null,
+          "model": "claude-haiku-4-5",
+          "reasoning_effort": null,
+          "requested_reasoning_effort": null,
+          "max_tokens": 32000,
+          "routing_reason": "A localized mechanical repair uses the scoped-fix role.",
+          "model_variable": "ANTHROPIC_SCOPED_FIX_MODEL",
+          "reasoning_variable": null,
+          "resolved_from_legacy_variable": false
+        }
+      ],
+      "origin": "deployment",
+      "setup_id": null,
+      "editable": false
+    },
+    {
+      "platform": "openai",
+      "platform_label": "OpenAI",
+      "performance_tier": "custom",
+      "tier_label": "Custom",
+      "label": "Mixed pilot setup",
+      "roles": [
+        {
+          "role": "reasoning",
+          "platform": "anthropic",
+          "model": "claude-opus-5",
+          "reasoning_effort": "max",
+          "requested_reasoning_effort": null,
+          "max_tokens": 64000,
+          "routing_reason": "Planning and high-level analysis use the configured reasoning role. Pinned by model setup 'Mixed pilot setup'; the deployment's per-agent effort overrides do not apply.",
+          "model_variable": "model setup \"Mixed pilot setup\"",
+          "reasoning_variable": "model setup \"Mixed pilot setup\"",
+          "resolved_from_legacy_variable": false
+        },
+        {
+          "role": "coding",
+          "platform": "openai",
+          "model": "gpt-5.6-sol",
+          "reasoning_effort": "high",
+          "requested_reasoning_effort": null,
+          "max_tokens": null,
+          "routing_reason": "Feature implementation and substantive fixes use the coding role. Pinned by model setup 'Mixed pilot setup'; the deployment's per-agent effort overrides do not apply.",
+          "model_variable": "model setup \"Mixed pilot setup\"",
+          "reasoning_variable": "model setup \"Mixed pilot setup\"",
+          "resolved_from_legacy_variable": false
+        },
+        {
+          "role": "review",
+          "platform": "anthropic",
+          "model": "claude-sonnet-5",
+          "reasoning_effort": "medium",
+          "requested_reasoning_effort": null,
+          "max_tokens": 32000,
+          "routing_reason": "Independent implementation review uses the configured review role. Pinned by model setup 'Mixed pilot setup'; the deployment's per-agent effort overrides do not apply.",
+          "model_variable": "model setup \"Mixed pilot setup\"",
+          "reasoning_variable": "model setup \"Mixed pilot setup\"",
+          "resolved_from_legacy_variable": false
+        },
+        {
+          "role": "scoped_fix",
+          "platform": "anthropic",
+          "model": "claude-haiku-4-5",
+          "reasoning_effort": null,
+          "requested_reasoning_effort": null,
+          "max_tokens": 32000,
+          "routing_reason": "A localized mechanical repair uses the scoped-fix role. Pinned by model setup 'Mixed pilot setup'; the deployment's per-agent effort overrides do not apply.",
+          "model_variable": "model setup \"Mixed pilot setup\"",
+          "reasoning_variable": null,
+          "resolved_from_legacy_variable": false
+        }
+      ],
+      "origin": "custom",
+      "setup_id": "setup-124e38bc-6bac-4a19-82f4-7097e2cb4137",
+      "editable": true
+    }
+  ]
+}

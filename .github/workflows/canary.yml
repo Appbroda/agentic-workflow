@@ -1,0 +1,142 @@
+# The orchestration canary, nightly.
+#
+# `server/tests/canary.py` runs two whole features through the real orchestrator, the real
+# control plane, the real queue with two dispatchers and the real child executor against real
+# git checkouts with local bare repositories as origins, then answers six questions production
+# has already answered wrongly. It reaches no provider, no hosting service and no deployment
+# database; the model is a deterministic double and the PostgreSQL database is one it creates
+# from the packaged migrations and drops afterwards.
+#
+# **This workflow cannot block a merge.** It has no `push` and no `pull_request` trigger, so it
+# never produces a check on a pull request and cannot be made a required one. That is
+# deliberate and is the reason the canary is here at all: a flaky canary that blocks merges
+# gets disabled within a week.
+name: Canary
+
+on:
+  schedule:
+    # 03:17 UTC. Off the hour because the whole platform's schedulers fire on it.
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One canary at a time, and never cancelled: a half-run canary reports nothing, and the point
+# of a nightly is the sequence of results.
+concurrency:
+  group: canary
+  cancel-in-progress: false
+
+jobs:
+  canary:
+    name: orchestration canary
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: ai_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d ai_platform"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      POSTGRES_TEST_URL: "postgresql+asyncpg://platform:platform@127.0.0.1:5432/postgres"
+
+      # The same five placeholders, for the same reason, documented in full in ci.yml: five
+      # required settings fields come from a gitignored `.env` a clean checkout does not have.
+      # None is a secret; none can reach a deployment. The canary calls `load_settings()` and
+      # would otherwise exit 2 on a clean runner -- reporting the missing configuration as
+      # "the canary could not run", which is true but is not the interesting failure.
+      OPENAI_REASONING_MODEL: ci-placeholder-no-provider-is-called
+      OPENAI_CODING_MODEL: ci-placeholder-no-provider-is-called
+      PLATFORM_API_KEY: ci-placeholder-nothing-authenticates-with-this
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+      REDIS_URL: "redis://127.0.0.1:6379/0"
+
+    defaults:
+      run:
+        working-directory: server
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.10.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+
+      - name: Install Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        run: npm install --global --no-audit --no-fund pnpm@9.15.4
+
+      - name: Sync the environment
+        run: uv sync --frozen
+
+      # The exit code is the report, so this step must not be the thing that fails: the summary
+      # is written and the artifact uploaded first, and `Report the outcome` below decides.
+      - name: Run the canary
+        id: canary
+        run: |
+          set +e
+          uv run python -m tests.canary --json canary.json
+          status=$?
+          set -e
+          echo "status=${status}" >> "$GITHUB_OUTPUT"
+          echo "The canary exited ${status}." >> "$GITHUB_STEP_SUMMARY"
+
+      # Always, including after exit 2 -- the canary writes its report before returning, so a
+      # run that could not start still says what stopped it. Without this a failure is only
+      # diagnosable by running it again.
+      - name: Publish canary.json
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: canary-${{ github.run_id }}
+          path: server/canary.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      # 1 and 2 are different pages. One says the platform regressed; the other says the canary
+      # could not run, which is not a canary that passed. Both fail the job so the scheduled-run
+      # notification fires, and the annotation title is what distinguishes them at a glance.
+      - name: Report the outcome
+        env:
+          STATUS: ${{ steps.canary.outputs.status }}
+        run: |
+          case "${STATUS}" in
+            0)
+              echo "Every invariant held."
+              ;;
+            1)
+              echo "::error title=Canary regressed::An invariant was violated. canary.json in this run's artifacts names which of the six."
+              exit 1
+              ;;
+            2)
+              echo "::error title=Canary could not run::Not a canary that passed. The runner could not provide PostgreSQL or the toolchain; fix the runner, then read canary.json for the recorded reason."
+              exit 1
+              ;;
+            *)
+              echo "::error title=Canary exited unexpectedly::The canary exited ${STATUS}, which it does not define."
+              exit 1
+              ;;
+          esac

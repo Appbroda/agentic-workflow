@@ -1,0 +1,88 @@
+[project]
+name = "ai-software-engineering-platform"
+version = "0.1.0"
+description = "A production-ready, artifact-driven AI software engineering platform."
+requires-python = ">=3.12,<3.14"
+dependencies = [
+    "aiosqlite>=0.20,<1.0",
+    "alembic>=1.14,<2.0",
+    "anthropic>=0.116,<1.0",
+    "asyncpg>=0.30,<1.0",
+    "cryptography>=44,<47",
+    "fastapi>=0.115,<1.0",
+    "gitpython>=3.1.43,<4.0",
+    # The Slack adapter's HTTP client. Promoted from the dev group rather than adding
+    # slack_sdk: already pinned, already in the lock, and three Slack endpoints do not
+    # justify an SDK that would also have to be screened for what it logs.
+    "httpx>=0.27,<1.0",
+    "jinja2>=3.1.5,<4.0",
+    "openai>=1.58,<3.0",
+    "opentelemetry-api>=1.28,<2.0",
+    "pydantic>=2.10,<3.0",
+    "pydantic-settings>=2.6,<3.0",
+    "psycopg[binary]>=3.2,<4.0",
+    "pygithub>=2.5,<3.0",
+    # Multipart form parsing, which FastAPI requires before it will even *define* a route
+    # with a file parameter. One image arrives as one file part. The alternative -- a base64
+    # string field on the strict `APIModel` -- was rejected for three independent reasons: it
+    # inflates the payload by a third, it passes a multi-megabyte string through
+    # `str_strip_whitespace`, and it puts the blob inside every request log line that ever
+    # prints a body.
+    "python-multipart>=0.0.20,<1.0",
+    "pyyaml>=6.0.2,<7.0",
+    "redis>=5.2,<7.0",
+    "ruff>=0.8,<1.0",
+    "sqlalchemy[asyncio]>=2.0.36,<3.0",
+    "structlog>=24.4,<26.0",
+    "pytest>=8.3,<9.0",
+    "uvicorn[standard]>=0.30,<1.0",
+]
+
+[dependency-groups]
+dev = [
+    "httpx>=0.27,<1.0",
+    "mypy>=1.13,<2.0",
+    "pre-commit>=4.0,<5.0",
+    "pytest-asyncio>=0.24,<1.0",
+    "types-pyyaml>=6.0.12,<7.0",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Two tiers are deselected by default to keep the local loop fast, and each is run explicitly
+# with its own `-m`. A command-line `-m` replaces the one here, so `-m postgres` or
+# `-m realrepo` selects exactly one tier. CI runs all three.
+#
+#   postgres   needs a real PostgreSQL server; executes the row locking SQLite does not have
+#   realrepo   runs a checkout's own toolchain -- npm, node, ruff, pytest -- as real
+#              subprocesses, so command *behaviour* is covered and not only its selection
+addopts = "-ra -m 'not postgres and not realrepo'"
+asyncio_mode = "auto"
+pythonpath = ["."]
+markers = [
+    "postgres: needs a real PostgreSQL server; exercises row locking SQLite does not have",
+    "realrepo: runs a repository's own toolchain for real; needs node, npm and git on PATH",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+# .codex-prompts holds the verbatim build prompts. They are an archive of what was
+# asked for, not source, so reformatting the snippets inside them would rewrite history.
+extend-exclude = [".venv", ".codex-prompts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+exclude = ["^\\.venv/"]

@@ -1,0 +1,40 @@
+{
+  "feature_id": "feature-login",
+  "awaiting_answers": false,
+  "clarification_state": "awaiting_design_verdict",
+  "technical_prd_artifact_id": "002_technical_prd.json",
+  "clarification_rounds": 0,
+  "max_clarification_rounds": 10,
+  "questions": [],
+  "previous_answers": {},
+  "design_conflicts": [
+    {
+      "conflict_id": "conflict-backend-sha256:b09d9a9022d6f82c10f0aa34584c0374181a00b73947a942e4692694ceee2a28",
+      "repository_id": "backend",
+      "kind": "reversal",
+      "question": "This repository's review requires a change this workstream already made and then removed once. That is a design decision being re-litigated, not a defect being repaired, and another attempt would reverse it again. Should the change stand, or is the review wrong to require it?",
+      "evidence": [
+        "this repository's review raised this and later stopped raising it.",
+        "Demanded again now by this repository's review: At server/services/bulkAppImport.service.js:88 the bulk create has no compensating cleanup; created apps survive a later row failure.",
+        "As it was worded when it was satisfied: Bulk creation at server/services/bulkAppImport.service.js:88 must compensate: delete the apps it created when a later row fails.",
+        "The attempt that removed it reported: Mock implementation completed for Backend API.",
+        "3 attempts were spent before the reversal was recognized."
+      ],
+      "demanded": {
+        "authority": "repository_review",
+        "statement": "At server/services/bulkAppImport.service.js:88 the bulk create has no compensating cleanup; created apps survive a later row failure.",
+        "grounds": ""
+      },
+      "satisfied": {
+        "authority": "repository_review",
+        "statement": "Bulk creation at server/services/bulkAppImport.service.js:88 must compensate: delete the apps it created when a later row fails.",
+        "grounds": "Mock implementation completed for Backend API."
+      },
+      "cross_authority": false,
+      "removals": 1,
+      "attempts_spent": 3,
+      "attempts_remaining": 0,
+      "answerable": true
+    }
+  ]
+}

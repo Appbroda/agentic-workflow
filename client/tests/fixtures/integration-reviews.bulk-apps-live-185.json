@@ -1,0 +1,203 @@
+{
+    "feature_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+    "artifacts": [
+        {
+            "artifact_id": "012_integration_review.attempt-0.json",
+            "artifact_type": "integration_review",
+            "workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+            "schema_version": "1.0",
+            "producer": "integration_reviewer",
+            "timestamp": "2026-09-01T09:20:59.705052Z",
+            "metadata": {
+                "source_artifact_ids": [
+                    "009_integration_contract.json",
+                    "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json",
+                    "011_child_workflow_result.admanager_console-2.0.attempt-1.json"
+                ],
+                "contract_version": "1.0.0",
+                "contract_validator": "OpenAPIContractCodeGenerator",
+                "assessment_coverage": {
+                    "contract_conformance": "checked",
+                    "cross_repository_behaviour": "checked",
+                    "security": "not_checked",
+                    "deployment": "not_checked"
+                },
+                "seam_review_model": "gpt-5.6-terra",
+                "seam_review_response_id": "resp_060e673a3276f244016a9698a90ff887d18cdd8b03b1559e23",
+                "seam_reviewed_repository_ids": [
+                    "AB-console-admin-2.0",
+                    "admanager_console-2.0"
+                ],
+                "seam_review_truncated_repository_ids": [],
+                "prompt_template": "integration_reviewer/v1.jinja2",
+                "execution": {
+                    "agent_type": "Integration reviewer",
+                    "provider": "openai",
+                    "model": "gpt-5.6-terra",
+                    "reasoning_effort": "high",
+                    "model_role": "review",
+                    "model_variable": "OPENAI_MEDIUM_REVIEW_MODEL",
+                    "routing_reason": "Independent implementation review uses the configured review role."
+                },
+                "integration_review_attempt": 0,
+                "input_signature": "6acec0acdf3563aaf17bd5e29b2f7002f94c1094af0291b559f6c99069ce4f89"
+            },
+            "validation_status": "valid",
+            "payload": {
+                "feature_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+                "contract_artifact_id": "009_integration_contract.json",
+                "review_status": "changes_requested",
+                "repository_results": [
+                    {
+                        "repository_id": "AB-console-admin-2.0",
+                        "child_workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0:AB-console-admin-2.0",
+                        "status": "approved",
+                        "child_result_artifact_id": "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json"
+                    },
+                    {
+                        "repository_id": "admanager_console-2.0",
+                        "child_workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0:admanager_console-2.0",
+                        "status": "approved",
+                        "child_result_artifact_id": "011_child_workflow_result.admanager_console-2.0.attempt-1.json"
+                    }
+                ],
+                "contract_checks": [
+                    "Contract-conformance checks were run by OpenAPIContractCodeGenerator against contract version 1.0.0.",
+                    "The review status is derived only from the severity of the findings those checks produced.",
+                    "The changed source of 2 repositories was read and compared."
+                ],
+                "cross_repository_findings": [
+                    {
+                        "finding_id": "BULK_IMPORT_AUTHORIZATION_SCOPE_NOT_ENFORCED",
+                        "severity": "high",
+                        "responsible_repository_id": "admanager_console-2.0",
+                        "affected_repository_ids": [
+                            "AB-console-admin-2.0",
+                            "admanager_console-2.0"
+                        ],
+                        "contract_reference": "AUTHZ-APP-BULK-ADMIN / bulkImportAppsCsv authorization_requirements",
+                        "description": "The frontend restricts visibility of bulk import to users with Employees Edit permission, but the backend authorizes every employee-login token without checking the corresponding app-management permission or organizational scope. An employee excluded by the frontend permission check can invoke the endpoint directly and create apps.",
+                        "evidence": "Contract: \"The authenticated requester must have the same administrator app-management permission and organizational scope required by existing app creation. Client-side visibility is supplementary; the server rule is authoritative.\" Frontend: \"userData.rolePermissions['Employees'] === 'Edit';\" Backend: \"if (req.tokenInfo.loginType !== 'employee') {\" followed by \"createBulkAppError('APP_BULK_FORBIDDEN')\"; no permission or scope check is performed for employee tokens.",
+                        "recommended_fix": "Update authorizeBulkApps to invoke the same authoritative administrator app-management permission and organizational-scope authorization used for app creation, rather than treating loginType === 'employee' as sufficient. Preserve the existing 403 APP_BULK_FORBIDDEN envelope when that authorization fails."
+                    },
+                    {
+                        "finding_id": "BULK_IMPORT_ERROR_STATUS_CODES_DO_NOT_MATCH_CONTRACT",
+                        "severity": "medium",
+                        "responsible_repository_id": "admanager_console-2.0",
+                        "affected_repository_ids": [
+                            "AB-console-admin-2.0",
+                            "admanager_console-2.0"
+                        ],
+                        "contract_reference": "bulkImportAppsCsv error_contracts: APP_BULK_RECORD_LIMIT_EXCEEDED, APP_BULK_CSV_INVALID, APP_BULK_VALIDATION_FAILED",
+                        "description": "The backend returns HTTP 400 for record-limit, CSV-structure, and row-validation failures, whereas the approved endpoint contract defines HTTP 422 for each of these codes. The current frontend maps errors by code and will display them, but API consumers receive statuses that do not match the agreed interface.",
+                        "evidence": "Contract: \"code\": \"APP_BULK_RECORD_LIMIT_EXCEEDED\", \"status_code\": 422; \"code\": \"APP_BULK_CSV_INVALID\", \"status_code\": 422; and \"code\": \"APP_BULK_VALIDATION_FAILED\", \"status_code\": 422. Backend: \"APP_BULK_RECORD_LIMIT_EXCEEDED: {\\n    statusCode: 400,\"; \"APP_BULK_CSV_INVALID: {\\n    statusCode: 400,\"; and \"APP_BULK_VALIDATION_FAILED: {\\n    statusCode: 400,\". Frontend consumes these codes in \"const bulkAppImportErrorMessages = {\" including \"APP_BULK_RECORD_LIMIT_EXCEEDED\", \"APP_BULK_CSV_INVALID\", and \"APP_BULK_VALIDATION_FAILED\".",
+                        "recommended_fix": "Change the statusCode values for APP_BULK_RECORD_LIMIT_EXCEEDED, APP_BULK_CSV_INVALID, and APP_BULK_VALIDATION_FAILED in server/utils/bulkApps.util.js from 400 to 422, preserving their existing error codes and envelopes."
+                    }
+                ],
+                "compatibility_assessment": "OpenAPIContractCodeGenerator reported at least one blocking contract-conformance finding; see cross_repository_findings. The changed source of 2 repositories was reviewed together. The frontend and backend agree on the POST /apps/bulk-import path, multipart file part name, and success/error envelope fields. However, the backend does not enforce the contract's administrator permission and organizational-scope authorization rule, and it returns 400 rather than the contract-mandated 422 for three defined validation/CSV-limit error codes.",
+                "security_assessment": "NOT PERFORMED. This gate inspects no repository source and makes no security claim about the coordinated change. Each repository's own 007_review.json carries the security assessment for its diff.",
+                "deployment_assessment": "NOT PERFORMED. merge_order below is the approved repository execution plan's order filtered to the repositories that are ready; no deployment, migration, or rollback verification was carried out against it.",
+                "merge_order": [
+                    "ws-ab-console-admin-bulk-apps",
+                    "ws-admanager-bulk-apps"
+                ],
+                "required_fixes": [
+                    "Update authorizeBulkApps to invoke the same authoritative administrator app-management permission and organizational-scope authorization used for app creation, rather than treating loginType === 'employee' as sufficient. Preserve the existing 403 APP_BULK_FORBIDDEN envelope when that authorization fails.",
+                    "Change the statusCode values for APP_BULK_RECORD_LIMIT_EXCEEDED, APP_BULK_CSV_INVALID, and APP_BULK_VALIDATION_FAILED in server/utils/bulkApps.util.js from 400 to 422, preserving their existing error codes and envelopes."
+                ]
+            }
+        },
+        {
+            "artifact_id": "012_integration_review.attempt-1.json",
+            "artifact_type": "integration_review",
+            "workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+            "schema_version": "1.0",
+            "producer": "integration_reviewer",
+            "timestamp": "2026-09-01T09:39:36.004150Z",
+            "metadata": {
+                "source_artifact_ids": [
+                    "009_integration_contract.json",
+                    "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json",
+                    "011_child_workflow_result.admanager_console-2.0.attempt-4.json"
+                ],
+                "contract_version": "1.0.0",
+                "contract_validator": "OpenAPIContractCodeGenerator",
+                "assessment_coverage": {
+                    "contract_conformance": "checked",
+                    "cross_repository_behaviour": "checked",
+                    "security": "not_checked",
+                    "deployment": "not_checked"
+                },
+                "seam_review_model": "gpt-5.6-terra",
+                "seam_review_response_id": "resp_0d58c69cb12a55ac016a969d28584487d195e93c98e08345c9",
+                "seam_reviewed_repository_ids": [
+                    "AB-console-admin-2.0",
+                    "admanager_console-2.0"
+                ],
+                "seam_review_truncated_repository_ids": [],
+                "prompt_template": "integration_reviewer/v1.jinja2",
+                "execution": {
+                    "agent_type": "Integration reviewer",
+                    "provider": "openai",
+                    "model": "gpt-5.6-terra",
+                    "reasoning_effort": "high",
+                    "model_role": "review",
+                    "model_variable": "OPENAI_MEDIUM_REVIEW_MODEL",
+                    "routing_reason": "Independent implementation review uses the configured review role."
+                },
+                "integration_review_attempt": 1,
+                "input_signature": "406a8056f0d2d1e263bb203880793eb01feabf2d59bacfe9aac1909e2f1e6e24"
+            },
+            "validation_status": "valid",
+            "payload": {
+                "feature_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+                "contract_artifact_id": "009_integration_contract.json",
+                "review_status": "approved",
+                "repository_results": [
+                    {
+                        "repository_id": "AB-console-admin-2.0",
+                        "child_workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0:AB-console-admin-2.0",
+                        "status": "approved",
+                        "child_result_artifact_id": "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json"
+                    },
+                    {
+                        "repository_id": "admanager_console-2.0",
+                        "child_workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0:admanager_console-2.0",
+                        "status": "approved",
+                        "child_result_artifact_id": "011_child_workflow_result.admanager_console-2.0.attempt-4.json"
+                    }
+                ],
+                "contract_checks": [
+                    "Contract-conformance checks were run by OpenAPIContractCodeGenerator against contract version 1.0.0.",
+                    "The review status is derived only from the severity of the findings those checks produced.",
+                    "The changed source of 2 repositories was read and compared."
+                ],
+                "cross_repository_findings": [
+                    {
+                        "finding_id": "BULK_CONFLICT_PREFLIGHT_SEMANTICS_MISMATCH",
+                        "severity": "medium",
+                        "responsible_repository_id": "admanager_console-2.0",
+                        "affected_repository_ids": [
+                            "admanager_console-2.0",
+                            "AB-console-admin-2.0"
+                        ],
+                        "contract_reference": "APP_BULK_CONFLICT and APP_BULK_VALIDATION_FAILED error contracts for bulkImportAppsCsv",
+                        "description": "The backend returns APP_BULK_CONFLICT for DUPLICATE_APP_ID_IN_FILE during preflight. Under the approved contract, APP_BULK_CONFLICT is reserved for a transactional uniqueness conflict after successful preflight, while duplicate preflight failures belong to APP_BULK_VALIDATION_FAILED. The frontend consequently renders an inaccurate existing-data conflict summary for duplicates that exist only within the uploaded CSV.",
+                        "evidence": "Frontend interpretation: \"APP_BULK_CONFLICT: 'One or more apps conflict with existing app data.',\". Backend preflight classification: \"const hasConflict = rowErrors.some((error) => [\\n    'DUPLICATE_APP_ID_IN_FILE',\\n    'DUPLICATE_APP_ID_EXISTS',\\n  ].includes(error.code));\" followed by \"hasConflict ? 'APP_BULK_CONFLICT' : 'APP_BULK_VALIDATION_FAILED',\".",
+                        "recommended_fix": "Change preflight duplicate failures, including DUPLICATE_APP_ID_IN_FILE and DUPLICATE_APP_ID_EXISTS found before the transaction, to return APP_BULK_VALIDATION_FAILED with row_errors. Retain APP_BULK_CONFLICT only for uniqueness conflicts detected inside the transaction after preflight succeeds."
+                    }
+                ],
+                "compatibility_assessment": "OpenAPIContractCodeGenerator reported no blocking contract-conformance finding. The changed source of 2 repositories was reviewed together. The frontend and backend agree on the POST /apps/bulk-import path, multipart file part name, Axios/FormData request construction, success envelope, and supported error-envelope fields. However, the backend assigns APP_BULK_CONFLICT to duplicate records detected during preflight, while the frontend interprets that code as a conflict with existing app data; this conflicts with the approved error-code semantics for preflight validation.",
+                "security_assessment": "NOT PERFORMED. This gate inspects no repository source and makes no security claim about the coordinated change. Each repository's own 007_review.json carries the security assessment for its diff.",
+                "deployment_assessment": "NOT PERFORMED. merge_order below is the approved repository execution plan's order filtered to the repositories that are ready; no deployment, migration, or rollback verification was carried out against it.",
+                "merge_order": [
+                    "ws-ab-console-admin-bulk-apps",
+                    "ws-admanager-bulk-apps"
+                ],
+                "required_fixes": [
+                    "Change preflight duplicate failures, including DUPLICATE_APP_ID_IN_FILE and DUPLICATE_APP_ID_EXISTS found before the transaction, to return APP_BULK_VALIDATION_FAILED with row_errors. Retain APP_BULK_CONFLICT only for uniqueness conflicts detected inside the transaction after preflight succeeds."
+                ]
+            }
+        }
+    ]
+}

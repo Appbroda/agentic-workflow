@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff check *)",
+      "Bash(uv run ruff format --check *)",
+      "Bash(uv run mypy *)",
+      "Bash(docker compose ps *)",
+      "Bash(docker compose logs *)",
+      "Bash(npm run lint)",
+      "Bash(curl -s -m * http://localhost:8000/*)",
+      "Bash(docker image inspect *)",
+      "Bash(curl -s -m * -X POST *http://localhost:8000/*)",
+      "Bash(curl -s -X POST *http://localhost:8000/*)",
+      "Bash(docker compose exec -T postgres psql *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(docker compose build *)",
+      "Bash(docker compose up *)",
+      "Bash(python3 *)",
+      "Bash(.venv/bin/python *)"
+    ],
+    "defaultMode": "bypassPermissions"
+  }
+}

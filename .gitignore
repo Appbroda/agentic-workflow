@@ -1,0 +1,32 @@
+# Python / uv
+__pycache__/
+*.py[cod]
+.venv/
+env/
+
+# Environment variables (NEVER commit tokens)
+.env
+
+# IDEs
+.vscode/
+.idea/
+
+# OS generated files
+.DS_Store
+Thumbs.db
+# Node/JS build output and tooling caches, anywhere in the repository
+# Without the trailing slash as well: `node_modules/` matches only a directory, so when a
+# tool left a *symlink* named node_modules behind it was not ignored, and PR #30 committed
+# it -- pointing at its own absolute path, so every fresh checkout and every git worktree
+# got a self-referential link and no client gate could run. PR #33 deleted the file; this
+# is the pattern that stops the next one being committable.
+node_modules
+node_modules/
+dist/
+*.tsbuildinfo
+.vite/
+coverage/
+
+# Git worktrees created for isolated agent runs. They are real checkouts of this
+# repository, not content belonging to it.
+.claude/worktrees/

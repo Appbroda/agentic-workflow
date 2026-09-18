@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- `%BASE_URL%` is Vite's `base`, so the icon resolves under /ui/ without this file
+         restating the mount point the router and the server already agree on. -->
+    <link rel="icon" type="image/svg+xml" href="%BASE_URL%favicon.svg" />
+    <title>CRYN3T Systems</title>
+    <meta
+      name="description"
+      content="CRYN3T Systems control plane: submit a requirement, watch the platform plan it, and review the pull requests it opens."
+    />
+    <!-- Both, in the order the browser prefers them, because the application follows the
+         machine's colour scheme rather than choosing one. -->
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eceef1" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#0a0c0e" />
+    <meta name="color-scheme" content="light dark" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

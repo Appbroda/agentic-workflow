@@ -1,0 +1,26 @@
+{
+  "id": "msg_01XmQ8kR2vN7pLdYw3TfBnKz",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-opus-5",
+  "content": [
+    {
+      "type": "thinking",
+      "thinking": "",
+      "signature": "ErUBCkYIBRgCIkDq3nJmZ1kQ6Yb2Xc9vFhLpTgWmRs4NdBjKxAeCuHvPzQfMnYtLwGiEoSrDaVkXbNcJhUpMfRlZtQyOwIgB"
+    },
+    {
+      "type": "text",
+      "text": "{\"summary\": \"Add a deactivate action to the ad unit row.\", \"files\": [{\"path\": \"src/rows/AdUnitRow.tsx\", \"edits\": [{\"find\": \"const actions = [activate];\", \"replace\": \"const actions = [activate, deactivate];\"}]}]}"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 18422,
+    "output_tokens": 1177,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 16384,
+    "service_tier": "standard"
+  }
+}

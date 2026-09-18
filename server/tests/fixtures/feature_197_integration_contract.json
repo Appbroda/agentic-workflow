@@ -1,0 +1,1182 @@
+{
+  "api_style": "rest",
+  "approved_at": "2026-09-02T09:42:45.709637Z",
+  "artifact_id": "009_integration_contract.json",
+  "artifact_type": "integration_contract",
+  "authentication_contract": {
+    "description": "Preserve the repository's current authenticated Axios and Passport transport, including any existing token or session handling; the feature introduces no alternate credential mechanism.",
+    "header_name": null,
+    "scheme": "Existing Passport JWT authentication used by protected app routes"
+  },
+  "authorization_rules": [
+    {
+      "applies_to_operation_ids": [
+        "bulkImportApps",
+        "downloadAppBulkImportTemplate"
+      ],
+      "description": "The authenticated principal must have the same authoritative app-management permission and organizational scope required by single-app creation. Login type and frontend visibility are insufficient.",
+      "rule_id": "AUTHZ-APP-MANAGE"
+    }
+  ],
+  "compatibility_policy": {
+    "breaking_change_allowed": false,
+    "migration_requirements": [
+      "Deploy the backend endpoints before exposing the frontend control.",
+      "Derive schema changes from the existing single-app validation source rather than changing the frontend independently.",
+      "Introduce a new endpoint version before removing fields, renaming the file part, changing limits, changing authentication behavior, or altering status semantics."
+    ],
+    "policy": "The two additive v1 endpoints and their stable operation IDs, paths, multipart part name, status codes, top-level codes, counts, row numbering, and response fields remain backward compatible. Additional row-level error codes may be added only when existing clients can safely render unknown codes using the message field.",
+    "rollback_requirements": [
+      "The frontend must be independently revertible without removing the backend endpoints.",
+      "The backend must remain compatible with existing single-app creation during feature rollback.",
+      "Every in-flight failed batch must complete local and external compensation before backend rollback or shutdown.",
+      "Do not roll back by replacing bulk import with repeated single-app API calls."
+    ]
+  },
+  "contract_version": "1.0.0",
+  "endpoints": [
+    {
+      "authentication_required": true,
+      "authorization_requirements": [
+        "AUTHZ-APP-MANAGE"
+      ],
+      "error_codes": [
+        "BULK_IMPORT_FILE_INVALID",
+        "BULK_IMPORT_ROW_LIMIT_EXCEEDED",
+        "BULK_IMPORT_VALIDATION_FAILED",
+        "BULK_IMPORT_DUPLICATE",
+        "BULK_IMPORT_FILE_TOO_LARGE",
+        "BULK_IMPORT_FAILED",
+        "AUTHENTICATION_REQUIRED",
+        "APP_MANAGEMENT_FORBIDDEN"
+      ],
+      "headers": [
+        {
+          "description": "Multipart content type with the generated boundary.",
+          "name": "Content-Type",
+          "required": true,
+          "schema": {
+            "pattern": "^multipart/form-data(?:;.*)?$",
+            "type": "string"
+          }
+        }
+      ],
+      "method": "POST",
+      "operation_id": "bulkImportApps",
+      "path": "/apps/bulk-import",
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "file": {
+            "contentEncoding": "binary",
+            "contentMediaType": "text/csv",
+            "description": "Raw UTF-8 CSV file part named file; optional leading BOM; maximum size 1,048,576 bytes inclusive.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "type": "object"
+      },
+      "response_schema": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "const": "BULK_IMPORT_CREATED"
+              },
+              "created": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              },
+              "outcomes": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "code": {
+                      "const": "CREATED"
+                    },
+                    "row": {
+                      "minimum": 2,
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "row",
+                    "code"
+                  ],
+                  "type": "object"
+                },
+                "maxItems": 100,
+                "minItems": 1,
+                "type": "array"
+              },
+              "processed": {
+                "maximum": 100,
+                "minimum": 1,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "processed",
+              "created",
+              "outcomes"
+            ],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "created": {
+                "const": 0
+              },
+              "errors": {
+                "items": {
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              "message": {
+                "type": "string"
+              },
+              "processed": {
+                "maximum": 100,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "rejected": {
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "success_status_codes": [
+        201
+      ],
+      "summary": "Synchronously validate one CSV file and create every represented app atomically, including required side effects, or create none.",
+      "version": "v1"
+    },
+    {
+      "authentication_required": true,
+      "authorization_requirements": [
+        "AUTHZ-APP-MANAGE"
+      ],
+      "error_codes": [
+        "AUTHENTICATION_REQUIRED",
+        "APP_MANAGEMENT_FORBIDDEN",
+        "BULK_IMPORT_CONTRACT_UNAVAILABLE"
+      ],
+      "headers": [
+        {
+          "description": "Preferred response media type.",
+          "name": "Accept",
+          "required": false,
+          "schema": {
+            "enum": [
+              "text/csv",
+              "*/*"
+            ],
+            "type": "string"
+          }
+        }
+      ],
+      "method": "GET",
+      "operation_id": "downloadAppBulkImportTemplate",
+      "path": "/apps/bulk-import/template",
+      "path_parameters": [],
+      "query_parameters": [],
+      "request_schema": {
+        "additionalProperties": false,
+        "maxProperties": 0,
+        "type": "object"
+      },
+      "response_schema": {
+        "oneOf": [
+          {
+            "contentMediaType": "text/csv",
+            "description": "UTF-8 CSV attachment whose first row contains every required authoritative app field exactly once.",
+            "type": "string"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "code",
+              "message"
+            ],
+            "type": "object"
+          }
+        ]
+      },
+      "success_status_codes": [
+        200
+      ],
+      "summary": "Download a CSV header template generated from the authoritative single-app creation input schema.",
+      "version": "v1"
+    }
+  ],
+  "environment_variables": [],
+  "error_contracts": [
+    {
+      "code": "BULK_IMPORT_FILE_INVALID",
+      "description": "The request lacks exactly one file, or the CSV is empty, header-only, malformed, structurally invalid, contains missing or unknown columns, or contains blank rows.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_FILE_INVALID"
+          },
+          "created": {
+            "const": 0
+          },
+          "errors": {
+            "items": {
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "processed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "processed",
+          "created",
+          "rejected",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "status_code": 400
+    },
+    {
+      "code": "BULK_IMPORT_ROW_LIMIT_EXCEEDED",
+      "description": "The CSV contains more than 100 app data records.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_ROW_LIMIT_EXCEEDED"
+          },
+          "created": {
+            "const": 0
+          },
+          "errors": {
+            "items": {
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "processed": {
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "processed",
+          "created",
+          "rejected",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "status_code": 400
+    },
+    {
+      "code": "BULK_IMPORT_VALIDATION_FAILED",
+      "description": "One or more mapped rows fail authoritative app validation, or a mixed batch contains both validation and duplicate errors.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_VALIDATION_FAILED"
+          },
+          "created": {
+            "const": 0
+          },
+          "errors": {
+            "items": {
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "processed": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "rejected": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "processed",
+          "created",
+          "rejected",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "status_code": 400
+    },
+    {
+      "code": "BULK_IMPORT_DUPLICATE",
+      "description": "An otherwise valid batch contains duplicate app_id values within the file or conflicts with stored apps under the single-app duplicate scope.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_DUPLICATE"
+          },
+          "created": {
+            "const": 0
+          },
+          "errors": {
+            "items": {
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "processed": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "rejected": {
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "processed",
+          "created",
+          "rejected",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "status_code": 409
+    },
+    {
+      "code": "BULK_IMPORT_FILE_TOO_LARGE",
+      "description": "The raw uploaded CSV file part exceeds 1,048,576 bytes.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_FILE_TOO_LARGE"
+          },
+          "created": {
+            "const": 0
+          },
+          "errors": {
+            "items": {
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "processed": {
+            "const": 0
+          },
+          "rejected": {
+            "const": 0
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "processed",
+          "created",
+          "rejected",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "status_code": 413
+    },
+    {
+      "code": "BULK_IMPORT_FAILED",
+      "description": "Persistence, Google Ad Manager, another required side effect, or compensation failed; local batch app records have been rolled back before response.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_FAILED"
+          },
+          "created": {
+            "const": 0
+          },
+          "errors": {
+            "items": {
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "message": {
+            "type": "string"
+          },
+          "processed": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "processed",
+          "created",
+          "rejected",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "status_code": 500
+    },
+    {
+      "code": "AUTHENTICATION_REQUIRED",
+      "description": "The existing authentication mechanism did not establish an authenticated principal.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "AUTHENTICATION_REQUIRED"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "status_code": 401
+    },
+    {
+      "code": "APP_MANAGEMENT_FORBIDDEN",
+      "description": "The principal lacks the authoritative app-management permission or requested organizational scope.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "APP_MANAGEMENT_FORBIDDEN"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "status_code": 403
+    },
+    {
+      "code": "BULK_IMPORT_CONTRACT_UNAVAILABLE",
+      "description": "The server could not derive or serialize the downloadable CSV contract.",
+      "schema_definition": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_CONTRACT_UNAVAILABLE"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "status_code": 500
+    }
+  ],
+  "event_contracts": [],
+  "feature_id": "feature-53d226e2-6021-4758-9281-790bba726ac7",
+  "metadata": {
+    "execution": {
+      "agent_type": "Technical planner",
+      "model": "gpt-5.6-sol",
+      "model_role": "reasoning",
+      "model_variable": "OPENAI_MEDIUM_REASONING_MODEL",
+      "provider": "openai",
+      "reasoning_effort": "high",
+      "routing_reason": "Planning and high-level analysis use the configured reasoning role."
+    },
+    "model": "gpt-5.6-sol",
+    "planned_from_checkout_evidence": true,
+    "prompt_template": "planner/feature_v1.jinja2",
+    "reconnaissance_artifact_ids": [
+      "015_repository_reconnaissance.AB-console-admin-2.0.json",
+      "015_repository_reconnaissance.admanager_console-2.0.json"
+    ],
+    "response_id": "resp_0c30a641516f0327016a97ee8ed70887d18867dd958a2a437f",
+    "source_artifact_ids": [
+      "002_technical_prd.revision-3.json",
+      "015_repository_reconnaissance.AB-console-admin-2.0.json",
+      "015_repository_reconnaissance.admanager_console-2.0.json"
+    ]
+  },
+  "openapi_document": {
+    "components": {
+      "schemas": {
+        "AppBulkImportCsvFile": {
+          "contentEncoding": "binary",
+          "contentMediaType": "text/csv",
+          "description": "UTF-8 with optional leading BOM, comma delimiter, RFC 4180 quoting, required header, no blank rows, one to 100 data rows, and columns store, app_type, app_developer, app_id, app_title, app_url, and icon in any order.",
+          "maxLength": 1048576,
+          "type": "string"
+        },
+        "AppBulkImportTemplate": {
+          "contentMediaType": "text/csv",
+          "description": "Canonical generated order is stable for downloads even though uploaded column order is not significant.",
+          "pattern": "^(?:\\uFEFF)?store,app_type,app_developer,app_id,app_title,app_url,icon\\r?\\n?$",
+          "type": "string"
+        },
+        "AuthorizationError": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "AUTHENTICATION_REQUIRED",
+                "APP_MANAGEMENT_FORBIDDEN"
+              ],
+              "type": "string"
+            },
+            "message": {
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "code",
+            "message"
+          ],
+          "type": "object"
+        },
+        "BulkImportError": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "enum": [
+                "BULK_IMPORT_FILE_INVALID",
+                "BULK_IMPORT_ROW_LIMIT_EXCEEDED",
+                "BULK_IMPORT_VALIDATION_FAILED",
+                "BULK_IMPORT_DUPLICATE",
+                "BULK_IMPORT_FILE_TOO_LARGE",
+                "BULK_IMPORT_FAILED"
+              ],
+              "type": "string"
+            },
+            "created": {
+              "const": 0
+            },
+            "errors": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "enum": [
+                      "FILE_MISSING",
+                      "MULTIPLE_FILES",
+                      "FILE_EMPTY",
+                      "HEADER_ONLY",
+                      "CSV_MALFORMED",
+                      "REQUIRED_COLUMN_MISSING",
+                      "UNKNOWN_COLUMN",
+                      "BLANK_ROW",
+                      "ROW_LIMIT_EXCEEDED",
+                      "INVALID_FIELD",
+                      "INVALID_APP_ID",
+                      "DUPLICATE_IN_FILE",
+                      "DUPLICATE_EXISTING",
+                      "PERSISTENCE_FAILED",
+                      "SIDE_EFFECT_FAILED",
+                      "CLEANUP_FAILED",
+                      "FILE_TOO_LARGE"
+                    ],
+                    "type": "string"
+                  },
+                  "field": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "message": {
+                    "minLength": 1,
+                    "type": "string"
+                  },
+                  "row": {
+                    "minimum": 2,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "row",
+                  "field",
+                  "code",
+                  "message"
+                ],
+                "type": "object"
+              },
+              "minItems": 1,
+              "type": "array"
+            },
+            "message": {
+              "minLength": 1,
+              "type": "string"
+            },
+            "processed": {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "rejected": {
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "message",
+            "processed",
+            "created",
+            "rejected",
+            "errors"
+          ],
+          "type": "object"
+        },
+        "BulkImportSuccess": {
+          "additionalProperties": false,
+          "properties": {
+            "code": {
+              "const": "BULK_IMPORT_CREATED"
+            },
+            "created": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            },
+            "outcomes": {
+              "items": {
+                "additionalProperties": false,
+                "properties": {
+                  "code": {
+                    "const": "CREATED"
+                  },
+                  "row": {
+                    "minimum": 2,
+                    "type": "integer"
+                  }
+                },
+                "required": [
+                  "row",
+                  "code"
+                ],
+                "type": "object"
+              },
+              "maxItems": 100,
+              "minItems": 1,
+              "type": "array"
+            },
+            "processed": {
+              "maximum": 100,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "code",
+            "processed",
+            "created",
+            "outcomes"
+          ],
+          "type": "object"
+        }
+      },
+      "securitySchemes": {
+        "contractAuth": {
+          "description": "Preserve the repository's current authenticated Axios and Passport transport, including any existing token or session handling; the feature introduces no alternate credential mechanism.",
+          "scheme": "Existing Passport JWT authentication used by protected app routes",
+          "type": "http"
+        }
+      }
+    },
+    "info": {
+      "title": "Feature feature-53d226e2-6021-4758-9281-790bba726ac7",
+      "version": "1.0.0"
+    },
+    "openapi": "3.1.0",
+    "paths": {
+      "/apps/bulk-import": {
+        "post": {
+          "operationId": "bulkImportApps",
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "file": {
+                      "contentEncoding": "binary",
+                      "contentMediaType": "text/csv",
+                      "description": "Raw UTF-8 CSV file part named file; optional leading BOM; maximum size 1,048,576 bytes inclusive.",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "file"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "201": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "code": {
+                            "const": "BULK_IMPORT_CREATED"
+                          },
+                          "created": {
+                            "maximum": 100,
+                            "minimum": 1,
+                            "type": "integer"
+                          },
+                          "outcomes": {
+                            "items": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "code": {
+                                  "const": "CREATED"
+                                },
+                                "row": {
+                                  "minimum": 2,
+                                  "type": "integer"
+                                }
+                              },
+                              "required": [
+                                "row",
+                                "code"
+                              ],
+                              "type": "object"
+                            },
+                            "maxItems": 100,
+                            "minItems": 1,
+                            "type": "array"
+                          },
+                          "processed": {
+                            "maximum": 100,
+                            "minimum": 1,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "processed",
+                          "created",
+                          "outcomes"
+                        ],
+                        "type": "object"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "created": {
+                            "const": 0
+                          },
+                          "errors": {
+                            "items": {
+                              "type": "object"
+                            },
+                            "type": "array"
+                          },
+                          "message": {
+                            "type": "string"
+                          },
+                          "processed": {
+                            "maximum": 100,
+                            "minimum": 0,
+                            "type": "integer"
+                          },
+                          "rejected": {
+                            "minimum": 0,
+                            "type": "integer"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                }
+              },
+              "description": "Success response"
+            }
+          },
+          "security": [
+            {
+              "contractAuth": []
+            }
+          ],
+          "summary": "Synchronously validate one CSV file and create every represented app atomically, including required side effects, or create none."
+        }
+      },
+      "/apps/bulk-import/template": {
+        "get": {
+          "operationId": "downloadAppBulkImportTemplate",
+          "requestBody": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "maxProperties": 0,
+                  "type": "object"
+                }
+              }
+            },
+            "required": true
+          },
+          "responses": {
+            "200": {
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "oneOf": [
+                      {
+                        "contentMediaType": "text/csv",
+                        "description": "UTF-8 CSV attachment whose first row contains every required authoritative app field exactly once.",
+                        "type": "string"
+                      },
+                      {
+                        "additionalProperties": false,
+                        "properties": {
+                          "code": {
+                            "type": "string"
+                          },
+                          "message": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "code",
+                          "message"
+                        ],
+                        "type": "object"
+                      }
+                    ]
+                  }
+                }
+              },
+              "description": "Success response"
+            }
+          },
+          "security": [
+            {
+              "contractAuth": []
+            }
+          ],
+          "summary": "Download a CSV header template generated from the authoritative single-app creation input schema."
+        }
+      }
+    }
+  },
+  "owning_workstreams": [
+    "admanager_console-2.0",
+    "AB-console-admin-2.0"
+  ],
+  "producer": "feature_planner",
+  "schema_version": "1.0",
+  "shared_schemas": [
+    {
+      "description": "Authoritative CSV file contract derived from single-app validation.",
+      "json_schema": {
+        "contentEncoding": "binary",
+        "contentMediaType": "text/csv",
+        "description": "UTF-8 with optional leading BOM, comma delimiter, RFC 4180 quoting, required header, no blank rows, one to 100 data rows, and columns store, app_type, app_developer, app_id, app_title, app_url, and icon in any order.",
+        "maxLength": 1048576,
+        "type": "string"
+      },
+      "name": "AppBulkImportCsvFile"
+    },
+    {
+      "description": "Downloadable header template generated by the backend from the single-app input schema.",
+      "json_schema": {
+        "contentMediaType": "text/csv",
+        "description": "Canonical generated order is stable for downloads even though uploaded column order is not significant.",
+        "pattern": "^(?:\\uFEFF)?store,app_type,app_developer,app_id,app_title,app_url,icon\\r?\\n?$",
+        "type": "string"
+      },
+      "name": "AppBulkImportTemplate"
+    },
+    {
+      "description": "Final response returned only after every app and required side effect succeeds.",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "const": "BULK_IMPORT_CREATED"
+          },
+          "created": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          },
+          "outcomes": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "const": "CREATED"
+                },
+                "row": {
+                  "minimum": 2,
+                  "type": "integer"
+                }
+              },
+              "required": [
+                "row",
+                "code"
+              ],
+              "type": "object"
+            },
+            "maxItems": 100,
+            "minItems": 1,
+            "type": "array"
+          },
+          "processed": {
+            "maximum": 100,
+            "minimum": 1,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "processed",
+          "created",
+          "outcomes"
+        ],
+        "type": "object"
+      },
+      "name": "BulkImportSuccess"
+    },
+    {
+      "description": "Aggregate file, row, duplicate, or operation failure response. Every failed operation reports created as zero.",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "BULK_IMPORT_FILE_INVALID",
+              "BULK_IMPORT_ROW_LIMIT_EXCEEDED",
+              "BULK_IMPORT_VALIDATION_FAILED",
+              "BULK_IMPORT_DUPLICATE",
+              "BULK_IMPORT_FILE_TOO_LARGE",
+              "BULK_IMPORT_FAILED"
+            ],
+            "type": "string"
+          },
+          "created": {
+            "const": 0
+          },
+          "errors": {
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "code": {
+                  "enum": [
+                    "FILE_MISSING",
+                    "MULTIPLE_FILES",
+                    "FILE_EMPTY",
+                    "HEADER_ONLY",
+                    "CSV_MALFORMED",
+                    "REQUIRED_COLUMN_MISSING",
+                    "UNKNOWN_COLUMN",
+                    "BLANK_ROW",
+                    "ROW_LIMIT_EXCEEDED",
+                    "INVALID_FIELD",
+                    "INVALID_APP_ID",
+                    "DUPLICATE_IN_FILE",
+                    "DUPLICATE_EXISTING",
+                    "PERSISTENCE_FAILED",
+                    "SIDE_EFFECT_FAILED",
+                    "CLEANUP_FAILED",
+                    "FILE_TOO_LARGE"
+                  ],
+                  "type": "string"
+                },
+                "field": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "minLength": 1,
+                  "type": "string"
+                },
+                "row": {
+                  "minimum": 2,
+                  "type": [
+                    "integer",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "row",
+                "field",
+                "code",
+                "message"
+              ],
+              "type": "object"
+            },
+            "minItems": 1,
+            "type": "array"
+          },
+          "message": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "processed": {
+            "maximum": 100,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "rejected": {
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "processed",
+          "created",
+          "rejected",
+          "errors"
+        ],
+        "type": "object"
+      },
+      "name": "BulkImportError"
+    },
+    {
+      "description": "Existing safe authentication or app-management authorization failure shape.",
+      "json_schema": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "AUTHENTICATION_REQUIRED",
+              "APP_MANAGEMENT_FORBIDDEN"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "name": "AuthorizationError"
+    }
+  ],
+  "status": "approved",
+  "timestamp": "2026-09-02T09:42:45.709649Z",
+  "validation_status": "valid",
+  "workflow_id": "feature-53d226e2-6021-4758-9281-790bba726ac7"
+}

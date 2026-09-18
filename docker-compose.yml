@@ -1,0 +1,503 @@
+x-platform-build: &platform-build
+  context: .
+  target: runtime
+  args:
+    # The API rejects an unknown/non-Git identity in production. Set this from the exact
+    # checkout being deployed: `export BUILD_REVISION=$(git rev-parse HEAD)`.
+    BUILD_REVISION: ${BUILD_REVISION:-unknown}
+
+# The performance-tier presets, passed to every service that resolves a model role. Defined
+# once and merged into each, because the tier variables are the one part of the model
+# configuration a deployment is expected to edit as a set -- and two copies of a set that must
+# agree is how the two of them come to disagree.
+#
+# Empty defaults throughout, deliberately: the unsuffixed variables above are the `high` tier,
+# so a deployment that sets none of these offers exactly the one tier it always did. A tier is
+# offered only when all four of its roles are set.
+x-performance-tiers: &performance-tiers
+  ANTHROPIC_LOW_REASONING_MODEL: ${ANTHROPIC_LOW_REASONING_MODEL:-}
+  ANTHROPIC_LOW_REASONING_EFFORT: ${ANTHROPIC_LOW_REASONING_EFFORT:-}
+  ANTHROPIC_LOW_CODING_MODEL: ${ANTHROPIC_LOW_CODING_MODEL:-}
+  ANTHROPIC_LOW_CODING_REASONING_EFFORT: ${ANTHROPIC_LOW_CODING_REASONING_EFFORT:-}
+  ANTHROPIC_LOW_CODING_MAX_TOKENS: ${ANTHROPIC_LOW_CODING_MAX_TOKENS:-}
+  ANTHROPIC_LOW_REASONING_MAX_TOKENS: ${ANTHROPIC_LOW_REASONING_MAX_TOKENS:-}
+  ANTHROPIC_LOW_REVIEW_MODEL: ${ANTHROPIC_LOW_REVIEW_MODEL:-}
+  ANTHROPIC_LOW_REVIEW_REASONING_EFFORT: ${ANTHROPIC_LOW_REVIEW_REASONING_EFFORT:-}
+  ANTHROPIC_LOW_REVIEW_MAX_TOKENS: ${ANTHROPIC_LOW_REVIEW_MAX_TOKENS:-}
+  ANTHROPIC_LOW_SCOPED_FIX_MODEL: ${ANTHROPIC_LOW_SCOPED_FIX_MODEL:-}
+  ANTHROPIC_LOW_SCOPED_FIX_REASONING_EFFORT: ${ANTHROPIC_LOW_SCOPED_FIX_REASONING_EFFORT:-}
+  ANTHROPIC_LOW_SCOPED_FIX_MAX_TOKENS: ${ANTHROPIC_LOW_SCOPED_FIX_MAX_TOKENS:-}
+  ANTHROPIC_MEDIUM_REASONING_MODEL: ${ANTHROPIC_MEDIUM_REASONING_MODEL:-}
+  ANTHROPIC_MEDIUM_REASONING_EFFORT: ${ANTHROPIC_MEDIUM_REASONING_EFFORT:-}
+  ANTHROPIC_MEDIUM_REASONING_MAX_TOKENS: ${ANTHROPIC_MEDIUM_REASONING_MAX_TOKENS:-}
+  ANTHROPIC_MEDIUM_CODING_MODEL: ${ANTHROPIC_MEDIUM_CODING_MODEL:-}
+  ANTHROPIC_MEDIUM_CODING_REASONING_EFFORT: ${ANTHROPIC_MEDIUM_CODING_REASONING_EFFORT:-}
+  ANTHROPIC_MEDIUM_CODING_MAX_TOKENS: ${ANTHROPIC_MEDIUM_CODING_MAX_TOKENS:-}
+  ANTHROPIC_MEDIUM_REVIEW_MODEL: ${ANTHROPIC_MEDIUM_REVIEW_MODEL:-}
+  ANTHROPIC_MEDIUM_REVIEW_REASONING_EFFORT: ${ANTHROPIC_MEDIUM_REVIEW_REASONING_EFFORT:-}
+  ANTHROPIC_MEDIUM_REVIEW_MAX_TOKENS: ${ANTHROPIC_MEDIUM_REVIEW_MAX_TOKENS:-}
+  ANTHROPIC_MEDIUM_SCOPED_FIX_MODEL: ${ANTHROPIC_MEDIUM_SCOPED_FIX_MODEL:-}
+  ANTHROPIC_MEDIUM_SCOPED_FIX_REASONING_EFFORT: ${ANTHROPIC_MEDIUM_SCOPED_FIX_REASONING_EFFORT:-}
+  ANTHROPIC_MEDIUM_SCOPED_FIX_MAX_TOKENS: ${ANTHROPIC_MEDIUM_SCOPED_FIX_MAX_TOKENS:-}
+  ANTHROPIC_HIGH_REASONING_MODEL: ${ANTHROPIC_HIGH_REASONING_MODEL:-}
+  ANTHROPIC_HIGH_REASONING_EFFORT: ${ANTHROPIC_HIGH_REASONING_EFFORT:-}
+  ANTHROPIC_HIGH_REASONING_MAX_TOKENS: ${ANTHROPIC_HIGH_REASONING_MAX_TOKENS:-}
+  ANTHROPIC_HIGH_CODING_MODEL: ${ANTHROPIC_HIGH_CODING_MODEL:-}
+  ANTHROPIC_HIGH_CODING_REASONING_EFFORT: ${ANTHROPIC_HIGH_CODING_REASONING_EFFORT:-}
+  ANTHROPIC_HIGH_CODING_MAX_TOKENS: ${ANTHROPIC_HIGH_CODING_MAX_TOKENS:-}
+  ANTHROPIC_HIGH_REVIEW_MODEL: ${ANTHROPIC_HIGH_REVIEW_MODEL:-}
+  ANTHROPIC_HIGH_REVIEW_REASONING_EFFORT: ${ANTHROPIC_HIGH_REVIEW_REASONING_EFFORT:-}
+  ANTHROPIC_HIGH_REVIEW_MAX_TOKENS: ${ANTHROPIC_HIGH_REVIEW_MAX_TOKENS:-}
+  ANTHROPIC_HIGH_SCOPED_FIX_MODEL: ${ANTHROPIC_HIGH_SCOPED_FIX_MODEL:-}
+  ANTHROPIC_HIGH_SCOPED_FIX_REASONING_EFFORT: ${ANTHROPIC_HIGH_SCOPED_FIX_REASONING_EFFORT:-}
+  ANTHROPIC_HIGH_SCOPED_FIX_MAX_TOKENS: ${ANTHROPIC_HIGH_SCOPED_FIX_MAX_TOKENS:-}
+  ANTHROPIC_ULTRA_REASONING_MODEL: ${ANTHROPIC_ULTRA_REASONING_MODEL:-}
+  ANTHROPIC_ULTRA_REASONING_EFFORT: ${ANTHROPIC_ULTRA_REASONING_EFFORT:-}
+  ANTHROPIC_ULTRA_REASONING_MAX_TOKENS: ${ANTHROPIC_ULTRA_REASONING_MAX_TOKENS:-}
+  ANTHROPIC_ULTRA_CODING_MODEL: ${ANTHROPIC_ULTRA_CODING_MODEL:-}
+  ANTHROPIC_ULTRA_CODING_REASONING_EFFORT: ${ANTHROPIC_ULTRA_CODING_REASONING_EFFORT:-}
+  ANTHROPIC_ULTRA_CODING_MAX_TOKENS: ${ANTHROPIC_ULTRA_CODING_MAX_TOKENS:-}
+  ANTHROPIC_ULTRA_REVIEW_MODEL: ${ANTHROPIC_ULTRA_REVIEW_MODEL:-}
+  ANTHROPIC_ULTRA_REVIEW_REASONING_EFFORT: ${ANTHROPIC_ULTRA_REVIEW_REASONING_EFFORT:-}
+  ANTHROPIC_ULTRA_REVIEW_MAX_TOKENS: ${ANTHROPIC_ULTRA_REVIEW_MAX_TOKENS:-}
+  ANTHROPIC_ULTRA_SCOPED_FIX_MODEL: ${ANTHROPIC_ULTRA_SCOPED_FIX_MODEL:-}
+  ANTHROPIC_ULTRA_SCOPED_FIX_REASONING_EFFORT: ${ANTHROPIC_ULTRA_SCOPED_FIX_REASONING_EFFORT:-}
+  ANTHROPIC_ULTRA_SCOPED_FIX_MAX_TOKENS: ${ANTHROPIC_ULTRA_SCOPED_FIX_MAX_TOKENS:-}
+  OPENAI_LOW_REASONING_MODEL: ${OPENAI_LOW_REASONING_MODEL:-}
+  OPENAI_LOW_REASONING_EFFORT: ${OPENAI_LOW_REASONING_EFFORT:-}
+  OPENAI_LOW_CODING_MODEL: ${OPENAI_LOW_CODING_MODEL:-}
+  OPENAI_LOW_CODING_REASONING_EFFORT: ${OPENAI_LOW_CODING_REASONING_EFFORT:-}
+  OPENAI_LOW_REVIEW_MODEL: ${OPENAI_LOW_REVIEW_MODEL:-}
+  OPENAI_LOW_REVIEW_REASONING_EFFORT: ${OPENAI_LOW_REVIEW_REASONING_EFFORT:-}
+  OPENAI_LOW_SCOPED_FIX_MODEL: ${OPENAI_LOW_SCOPED_FIX_MODEL:-}
+  OPENAI_LOW_SCOPED_FIX_REASONING_EFFORT: ${OPENAI_LOW_SCOPED_FIX_REASONING_EFFORT:-}
+  OPENAI_MEDIUM_REASONING_MODEL: ${OPENAI_MEDIUM_REASONING_MODEL:-}
+  OPENAI_MEDIUM_REASONING_EFFORT: ${OPENAI_MEDIUM_REASONING_EFFORT:-}
+  OPENAI_MEDIUM_CODING_MODEL: ${OPENAI_MEDIUM_CODING_MODEL:-}
+  OPENAI_MEDIUM_CODING_REASONING_EFFORT: ${OPENAI_MEDIUM_CODING_REASONING_EFFORT:-}
+  OPENAI_MEDIUM_REVIEW_MODEL: ${OPENAI_MEDIUM_REVIEW_MODEL:-}
+  OPENAI_MEDIUM_REVIEW_REASONING_EFFORT: ${OPENAI_MEDIUM_REVIEW_REASONING_EFFORT:-}
+  OPENAI_MEDIUM_SCOPED_FIX_MODEL: ${OPENAI_MEDIUM_SCOPED_FIX_MODEL:-}
+  OPENAI_MEDIUM_SCOPED_FIX_REASONING_EFFORT: ${OPENAI_MEDIUM_SCOPED_FIX_REASONING_EFFORT:-}
+  OPENAI_HIGH_REASONING_MODEL: ${OPENAI_HIGH_REASONING_MODEL:-}
+  OPENAI_HIGH_REASONING_EFFORT: ${OPENAI_HIGH_REASONING_EFFORT:-}
+  OPENAI_HIGH_CODING_MODEL: ${OPENAI_HIGH_CODING_MODEL:-}
+  OPENAI_HIGH_CODING_REASONING_EFFORT: ${OPENAI_HIGH_CODING_REASONING_EFFORT:-}
+  OPENAI_HIGH_REVIEW_MODEL: ${OPENAI_HIGH_REVIEW_MODEL:-}
+  OPENAI_HIGH_REVIEW_REASONING_EFFORT: ${OPENAI_HIGH_REVIEW_REASONING_EFFORT:-}
+  OPENAI_HIGH_SCOPED_FIX_MODEL: ${OPENAI_HIGH_SCOPED_FIX_MODEL:-}
+  OPENAI_HIGH_SCOPED_FIX_REASONING_EFFORT: ${OPENAI_HIGH_SCOPED_FIX_REASONING_EFFORT:-}
+  OPENAI_ULTRA_REASONING_MODEL: ${OPENAI_ULTRA_REASONING_MODEL:-}
+  OPENAI_ULTRA_REASONING_EFFORT: ${OPENAI_ULTRA_REASONING_EFFORT:-}
+  OPENAI_ULTRA_CODING_MODEL: ${OPENAI_ULTRA_CODING_MODEL:-}
+  OPENAI_ULTRA_CODING_REASONING_EFFORT: ${OPENAI_ULTRA_CODING_REASONING_EFFORT:-}
+  OPENAI_ULTRA_REVIEW_MODEL: ${OPENAI_ULTRA_REVIEW_MODEL:-}
+  OPENAI_ULTRA_REVIEW_REASONING_EFFORT: ${OPENAI_ULTRA_REVIEW_REASONING_EFFORT:-}
+  OPENAI_ULTRA_SCOPED_FIX_MODEL: ${OPENAI_ULTRA_SCOPED_FIX_MODEL:-}
+  OPENAI_ULTRA_SCOPED_FIX_REASONING_EFFORT: ${OPENAI_ULTRA_SCOPED_FIX_REASONING_EFFORT:-}
+
+x-runtime-identity: &runtime-identity
+  # These controller-supplied expectations are deliberately independent of image metadata.
+  # Recreating a container with a stale image therefore fails closed instead of serving work.
+  EXPECTED_BUILD_REVISION: ${BUILD_REVISION:-unknown}
+  EXPECTED_WORKFLOW_SCHEMA_VERSION: ${WORKFLOW_SCHEMA_VERSION:-unknown}
+
+services:
+  migrate:
+    logging:
+      driver: json-file
+      options:
+        # Container logs are not the durable record -- the database is -- but an
+        # unbounded log file fills the same volume the workspaces need, and this
+        # deployment shares one.
+        max-size: "50m"
+        max-file: "5"
+    build: *platform-build
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform}@postgres:5432/${POSTGRES_DB:-ai_platform}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  workspace-init:
+    logging:
+      driver: json-file
+      options:
+        # Container logs are not the durable record -- the database is -- but an
+        # unbounded log file fills the same volume the workspaces need, and this
+        # deployment shares one.
+        max-size: "50m"
+        max-file: "5"
+    build: *platform-build
+    user: root
+    command:
+      [
+        "sh",
+        "-c",
+        "mkdir -p /workspaces && chown -R platform:platform /workspaces",
+      ]
+    volumes:
+      - workspace_data:/workspaces
+    restart: "no"
+
+  api:
+    logging:
+      driver: json-file
+      options:
+        # Container logs are not the durable record -- the database is -- but an
+        # unbounded log file fills the same volume the workspaces need, and this
+        # deployment shares one.
+        max-size: "50m"
+        max-file: "5"
+    build: *platform-build
+    restart: unless-stopped
+    environment:
+      <<: [*runtime-identity, *performance-tiers]
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform}@postgres:5432/${POSTGRES_DB:-ai_platform}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_REASONING_MODEL: ${OPENAI_REASONING_MODEL:?Set OPENAI_REASONING_MODEL in .env}
+      OPENAI_CODING_MODEL: ${OPENAI_CODING_MODEL:?Set OPENAI_CODING_MODEL in .env}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-}
+      # Per-agent, for the agents that share the reasoning role and are not the same job.
+      # Set, any of these overrides both the role level above and the checked-in policy file.
+      OPENAI_PLANNER_REASONING_EFFORT: ${OPENAI_PLANNER_REASONING_EFFORT:-}
+      OPENAI_PRODUCT_MANAGER_REASONING_EFFORT: ${OPENAI_PRODUCT_MANAGER_REASONING_EFFORT:-}
+      OPENAI_RECON_REASONING_EFFORT: ${OPENAI_RECON_REASONING_EFFORT:-}
+      OPENAI_REASONING_TIMEOUT_SECONDS: ${OPENAI_REASONING_TIMEOUT_SECONDS:-1800}
+      OPENAI_CODING_REASONING_EFFORT: ${OPENAI_CODING_REASONING_EFFORT:-}
+      OPENAI_REVIEW_MODEL: ${OPENAI_REVIEW_MODEL:-}
+      OPENAI_REVIEW_REASONING_EFFORT: ${OPENAI_REVIEW_REASONING_EFFORT:-}
+      OPENAI_SCOPED_FIX_MODEL: ${OPENAI_SCOPED_FIX_MODEL:-}
+      OPENAI_SCOPED_FIX_REASONING_EFFORT: ${OPENAI_SCOPED_FIX_REASONING_EFFORT:-}
+      # The same four roles on the second platform. Empty defaults on purpose: a deployment
+      # that offers only OpenAI must still start, and a platform is offered to submitters
+      # only when all four of its models are set.
+      ANTHROPIC_REASONING_MODEL: ${ANTHROPIC_REASONING_MODEL:-}
+      ANTHROPIC_REASONING_EFFORT: ${ANTHROPIC_REASONING_EFFORT:-}
+      ANTHROPIC_CODING_MODEL: ${ANTHROPIC_CODING_MODEL:-}
+      ANTHROPIC_CODING_REASONING_EFFORT: ${ANTHROPIC_CODING_REASONING_EFFORT:-}
+      ANTHROPIC_REVIEW_MODEL: ${ANTHROPIC_REVIEW_MODEL:-}
+      ANTHROPIC_REVIEW_REASONING_EFFORT: ${ANTHROPIC_REVIEW_REASONING_EFFORT:-}
+      ANTHROPIC_SCOPED_FIX_MODEL: ${ANTHROPIC_SCOPED_FIX_MODEL:-}
+      ANTHROPIC_SCOPED_FIX_REASONING_EFFORT: ${ANTHROPIC_SCOPED_FIX_REASONING_EFFORT:-}
+      # Required only for identity-linked Anthropic API keys, which must name the
+      # workspace each request acts in. Workspace-scoped keys leave this unset.
+      ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
+      # How many tokens one Messages API response may produce. Required by that API and
+      # unused by the Responses API. Unset keeps the per-role defaults.
+      ANTHROPIC_REASONING_MAX_TOKENS: ${ANTHROPIC_REASONING_MAX_TOKENS:-32000}
+      ANTHROPIC_CODING_MAX_TOKENS: ${ANTHROPIC_CODING_MAX_TOKENS:-64000}
+      ANTHROPIC_REVIEW_MAX_TOKENS: ${ANTHROPIC_REVIEW_MAX_TOKENS:-16000}
+      ANTHROPIC_SCOPED_FIX_MAX_TOKENS: ${ANTHROPIC_SCOPED_FIX_MAX_TOKENS:-16000}
+      # Legacy fallbacks keep environments with only the former names runnable during rollout.
+      OPENAI_CODING_EFFORT: ${OPENAI_CODING_EFFORT:-}
+      OPENAI_CODING_REASONING: ${OPENAI_CODING_REASONING:-}
+      OPENAI_REVIEW_REASONING: ${OPENAI_REVIEW_REASONING:-}
+      OPENAI_FIX_MODEL: ${OPENAI_FIX_MODEL:-}
+      OPENAI_FIX_REASONING: ${OPENAI_FIX_REASONING:-}
+      # Which effort levels a configured model does not accept, as JSON. Declared by the
+      # deployment because the accepted set differs per model and changes without this
+      # repository being told.
+      # The default is empty, not `{}`: Compose ends a `${...}` expression at the first `}`,
+      # so a `:-{}}` default leaves a literal `}` appended to whatever the operator set, and a
+      # real declaration reaches the container as invalid JSON. Both parsers read empty as an
+      # absent declaration, which is the same thing `{}` meant.
+      MODEL_REASONING_UNSUPPORTED: ${MODEL_REASONING_UNSUPPORTED:-}
+      MODEL_TEMPERATURE_UNSUPPORTED: ${MODEL_TEMPERATURE_UNSUPPORTED:-}
+      # How many output tokens each model can produce at most, as JSON. The one input the
+      # custom-setup ceiling checks need and nothing in the repository can know for itself;
+      # a model absent from the declaration has no known ceiling and those checks do not fire.
+      MODEL_MAX_OUTPUT_TOKENS: ${MODEL_MAX_OUTPUT_TOKENS:-}
+      # How many context tokens each model can read, as JSON. The one input the
+      # repository-snapshot budget derivation needs; a model absent from the declaration
+      # falls back to the default budget. Empty default, never `{}`, for the reason above.
+      MODEL_CONTEXT_WINDOW_TOKENS: ${MODEL_CONTEXT_WINDOW_TOKENS:-}
+      # Which models can be shown an image, as a JSON array. The one declaration whose empty
+      # default is a *refusal* rather than a deference: an undeclared model is treated as not
+      # vision-capable, because guessing "probably fine" costs a provider 400 mid-run or a
+      # model that ignores the image blocks and answers from the prose. A submission carrying
+      # screenshots is refused at acceptance when the reasoning model is not named here.
+      # Empty default, never `{}`, for the Compose brace reason above.
+      MODEL_VISION_CAPABLE: ${MODEL_VISION_CAPABLE:-}
+      MODEL_ROUTER_MIN_CONFIDENCE: ${MODEL_ROUTER_MIN_CONFIDENCE:-0.80}
+      # Optional, and unset is the target state: with per-user passwords there is an
+      # account for every person, and anybody holding this key is an unnamed
+      # administrator with every permission. Kept as a break-glass credential for the
+      # case a per-user token cannot be resolved because the database is what is broken;
+      # an admin token issued in advance is the better answer and does not sit in a file.
+      # An empty value means unset, not a key nobody can guess -- see
+      # `blank_secret_is_absent` in `configs/settings.py`.
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      # The administrator's first password, read once at startup and never overwritten.
+      # Remove it from the environment after the first boot; the account is created with
+      # `must_change_password`, which is what makes forgetting survivable.
+      # Never `:-` alone. An unexported variable arrives as an empty *string*, which
+      # pydantic accepts on a plain `str` field and which then overrides the setting's own
+      # default -- so the bootstrap looked the administrator up by "" and set no password.
+      # `configs/settings.py` also restores the default; belt and braces, because a
+      # deployment that edits this file should not be able to reintroduce the blank.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-akhilesh@appbroda.com}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      SESSION_TOKEN_TTL_HOURS: ${SESSION_TOKEN_TTL_HOURS:-12}
+      LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-10}
+      LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-900}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      SECRET_ENCRYPTION_PREVIOUS_KEYS: ${SECRET_ENCRYPTION_PREVIOUS_KEYS:-[]}
+      ENVIRONMENT: production
+      ALLOWED_HOSTS: ${ALLOWED_HOSTS:?Set ALLOWED_HOSTS as a JSON array in .env}
+      # How many live features may be in flight at once. Counted over every live feature
+      # whose status has not settled, so one parked on a clarification question holds a slot
+      # too. This bounds what may be *accepted*; FEATURE_QUEUE_WORKERS bounds how many
+      # advance at a time, and each live feature clones and installs every repository it
+      # touches. Zero is unbounded.
+      MAX_CONCURRENT_LIVE_FEATURES: ${MAX_CONCURRENT_LIVE_FEATURES:-3}
+      WORKSPACE_ROOT: ${CONTAINER_WORKSPACE_ROOT:-/workspaces}
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      workspace-init:
+        condition: service_completed_successfully
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - workspace_data:/workspaces
+      # npm's cache, at the path `npm config get cache` reports inside this image. Without it
+      # the 256 MB cache lives in the container's own filesystem and every
+      # `docker compose up --force-recreate` throws it away, which puts the first install after
+      # every deploy into the 224-378s band that ended AB-Feature-203, 204 and 205. Attempt 0
+      # of 203 and 204 were the first installs after a recreate, and they are those rows.
+      #
+      # Shared by every repository this container builds, which is what makes it valuable and
+      # also means a corrupt entry is shared: acceptable because `npm ci` verifies integrity
+      # against the checked-in lockfile and re-fetches anything that does not match. It grows
+      # without bound, so it wants the same operational attention `workspace_data` gets --
+      # `docker run --rm -v agentic-workflow-gam_npm_cache:/c alpine du -sh /c` to size it and
+      # `npm cache verify` inside the container to compact it. The disk is how 203 died.
+      - npm_cache:/home/platform/.npm
+      # Provisioned package-manager versions, so a repository's declared toolchain is
+      # not re-downloaded after every `--force-recreate`. See the Dockerfile.
+      - corepack_cache:/home/platform/.cache/node/corepack
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/readyz', timeout=2)",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+
+  api-dev:
+    logging:
+      driver: json-file
+      options:
+        # Container logs are not the durable record -- the database is -- but an
+        # unbounded log file fills the same volume the workspaces need, and this
+        # deployment shares one.
+        max-size: "50m"
+        max-file: "5"
+    build: *platform-build
+    command:
+      [
+        "python",
+        "-m",
+        "uvicorn",
+        "main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--no-access-log",
+      ]
+    profiles: ["dev"]
+    environment:
+      <<: [*runtime-identity, *performance-tiers]
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-platform}:${POSTGRES_PASSWORD:-platform}@postgres:5432/${POSTGRES_DB:-ai_platform}
+      REDIS_URL: redis://redis:6379/0
+      OPENAI_REASONING_MODEL: ${OPENAI_REASONING_MODEL:?Set OPENAI_REASONING_MODEL in .env}
+      OPENAI_CODING_MODEL: ${OPENAI_CODING_MODEL:?Set OPENAI_CODING_MODEL in .env}
+      OPENAI_REASONING_EFFORT: ${OPENAI_REASONING_EFFORT:-}
+      # Per-agent, for the agents that share the reasoning role and are not the same job.
+      # Set, any of these overrides both the role level above and the checked-in policy file.
+      OPENAI_PLANNER_REASONING_EFFORT: ${OPENAI_PLANNER_REASONING_EFFORT:-}
+      OPENAI_PRODUCT_MANAGER_REASONING_EFFORT: ${OPENAI_PRODUCT_MANAGER_REASONING_EFFORT:-}
+      OPENAI_RECON_REASONING_EFFORT: ${OPENAI_RECON_REASONING_EFFORT:-}
+      OPENAI_REASONING_TIMEOUT_SECONDS: ${OPENAI_REASONING_TIMEOUT_SECONDS:-1800}
+      OPENAI_CODING_REASONING_EFFORT: ${OPENAI_CODING_REASONING_EFFORT:-}
+      OPENAI_REVIEW_MODEL: ${OPENAI_REVIEW_MODEL:-}
+      OPENAI_REVIEW_REASONING_EFFORT: ${OPENAI_REVIEW_REASONING_EFFORT:-}
+      OPENAI_SCOPED_FIX_MODEL: ${OPENAI_SCOPED_FIX_MODEL:-}
+      OPENAI_SCOPED_FIX_REASONING_EFFORT: ${OPENAI_SCOPED_FIX_REASONING_EFFORT:-}
+      # The same four roles on the second platform. Empty defaults on purpose: a deployment
+      # that offers only OpenAI must still start, and a platform is offered to submitters
+      # only when all four of its models are set.
+      ANTHROPIC_REASONING_MODEL: ${ANTHROPIC_REASONING_MODEL:-}
+      ANTHROPIC_REASONING_EFFORT: ${ANTHROPIC_REASONING_EFFORT:-}
+      ANTHROPIC_CODING_MODEL: ${ANTHROPIC_CODING_MODEL:-}
+      ANTHROPIC_CODING_REASONING_EFFORT: ${ANTHROPIC_CODING_REASONING_EFFORT:-}
+      ANTHROPIC_REVIEW_MODEL: ${ANTHROPIC_REVIEW_MODEL:-}
+      ANTHROPIC_REVIEW_REASONING_EFFORT: ${ANTHROPIC_REVIEW_REASONING_EFFORT:-}
+      ANTHROPIC_SCOPED_FIX_MODEL: ${ANTHROPIC_SCOPED_FIX_MODEL:-}
+      ANTHROPIC_SCOPED_FIX_REASONING_EFFORT: ${ANTHROPIC_SCOPED_FIX_REASONING_EFFORT:-}
+      # Required only for identity-linked Anthropic API keys, which must name the
+      # workspace each request acts in. Workspace-scoped keys leave this unset.
+      ANTHROPIC_WORKSPACE_ID: ${ANTHROPIC_WORKSPACE_ID:-}
+      # How many tokens one Messages API response may produce. Required by that API and
+      # unused by the Responses API. Unset keeps the per-role defaults.
+      ANTHROPIC_REASONING_MAX_TOKENS: ${ANTHROPIC_REASONING_MAX_TOKENS:-32000}
+      ANTHROPIC_CODING_MAX_TOKENS: ${ANTHROPIC_CODING_MAX_TOKENS:-64000}
+      ANTHROPIC_REVIEW_MAX_TOKENS: ${ANTHROPIC_REVIEW_MAX_TOKENS:-16000}
+      ANTHROPIC_SCOPED_FIX_MAX_TOKENS: ${ANTHROPIC_SCOPED_FIX_MAX_TOKENS:-16000}
+      # Legacy fallbacks keep environments with only the former names runnable during rollout.
+      OPENAI_CODING_EFFORT: ${OPENAI_CODING_EFFORT:-}
+      OPENAI_CODING_REASONING: ${OPENAI_CODING_REASONING:-}
+      OPENAI_REVIEW_REASONING: ${OPENAI_REVIEW_REASONING:-}
+      OPENAI_FIX_MODEL: ${OPENAI_FIX_MODEL:-}
+      OPENAI_FIX_REASONING: ${OPENAI_FIX_REASONING:-}
+      # Which effort levels a configured model does not accept, as JSON. Declared by the
+      # deployment because the accepted set differs per model and changes without this
+      # repository being told.
+      # The default is empty, not `{}`: Compose ends a `${...}` expression at the first `}`,
+      # so a `:-{}}` default leaves a literal `}` appended to whatever the operator set, and a
+      # real declaration reaches the container as invalid JSON. Both parsers read empty as an
+      # absent declaration, which is the same thing `{}` meant.
+      MODEL_REASONING_UNSUPPORTED: ${MODEL_REASONING_UNSUPPORTED:-}
+      MODEL_TEMPERATURE_UNSUPPORTED: ${MODEL_TEMPERATURE_UNSUPPORTED:-}
+      # How many output tokens each model can produce at most, as JSON. The one input the
+      # custom-setup ceiling checks need and nothing in the repository can know for itself;
+      # a model absent from the declaration has no known ceiling and those checks do not fire.
+      MODEL_MAX_OUTPUT_TOKENS: ${MODEL_MAX_OUTPUT_TOKENS:-}
+      # How many context tokens each model can read, as JSON. The one input the
+      # repository-snapshot budget derivation needs; a model absent from the declaration
+      # falls back to the default budget. Empty default, never `{}`, for the reason above.
+      MODEL_CONTEXT_WINDOW_TOKENS: ${MODEL_CONTEXT_WINDOW_TOKENS:-}
+      # Which models can be shown an image, as a JSON array. The one declaration whose empty
+      # default is a *refusal* rather than a deference: an undeclared model is treated as not
+      # vision-capable, because guessing "probably fine" costs a provider 400 mid-run or a
+      # model that ignores the image blocks and answers from the prose. A submission carrying
+      # screenshots is refused at acceptance when the reasoning model is not named here.
+      # Empty default, never `{}`, for the Compose brace reason above.
+      MODEL_VISION_CAPABLE: ${MODEL_VISION_CAPABLE:-}
+      MODEL_ROUTER_MIN_CONFIDENCE: ${MODEL_ROUTER_MIN_CONFIDENCE:-0.80}
+      # Optional, and unset is the target state: with per-user passwords there is an
+      # account for every person, and anybody holding this key is an unnamed
+      # administrator with every permission. Kept as a break-glass credential for the
+      # case a per-user token cannot be resolved because the database is what is broken;
+      # an admin token issued in advance is the better answer and does not sit in a file.
+      # An empty value means unset, not a key nobody can guess -- see
+      # `blank_secret_is_absent` in `configs/settings.py`.
+      PLATFORM_API_KEY: ${PLATFORM_API_KEY:-}
+      # The administrator's first password, read once at startup and never overwritten.
+      # Remove it from the environment after the first boot; the account is created with
+      # `must_change_password`, which is what makes forgetting survivable.
+      # Never `:-` alone. An unexported variable arrives as an empty *string*, which
+      # pydantic accepts on a plain `str` field and which then overrides the setting's own
+      # default -- so the bootstrap looked the administrator up by "" and set no password.
+      # `configs/settings.py` also restores the default; belt and braces, because a
+      # deployment that edits this file should not be able to reintroduce the blank.
+      BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-akhilesh@appbroda.com}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-}
+      SESSION_TOKEN_TTL_HOURS: ${SESSION_TOKEN_TTL_HOURS:-12}
+      LOGIN_RATE_LIMIT_ATTEMPTS: ${LOGIN_RATE_LIMIT_ATTEMPTS:-10}
+      LOGIN_RATE_LIMIT_WINDOW_SECONDS: ${LOGIN_RATE_LIMIT_WINDOW_SECONDS:-900}
+      SECRET_ENCRYPTION_KEY: ${SECRET_ENCRYPTION_KEY:-}
+      SECRET_ENCRYPTION_PREVIOUS_KEYS: ${SECRET_ENCRYPTION_PREVIOUS_KEYS:-[]}
+      ENVIRONMENT: development
+      # How many live features may be in flight at once. Counted over every live feature
+      # whose status has not settled, so one parked on a clarification question holds a slot
+      # too. This bounds what may be *accepted*; FEATURE_QUEUE_WORKERS bounds how many
+      # advance at a time, and each live feature clones and installs every repository it
+      # touches. Zero is unbounded.
+      MAX_CONCURRENT_LIVE_FEATURES: ${MAX_CONCURRENT_LIVE_FEATURES:-3}
+      WORKSPACE_ROOT: ${CONTAINER_WORKSPACE_ROOT:-/workspaces}
+      LOG_LEVEL: ${LOG_LEVEL:-DEBUG}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      workspace-init:
+        condition: service_completed_successfully
+    ports:
+      - "${API_DEV_PORT:-8001}:8000"
+    volumes:
+      - .:/app
+      - workspace_data:/workspaces
+      # The same cache as `api`, deliberately shared rather than given its own: this service
+      # runs the same installs against the same repositories, and npm's cache is
+      # content-addressed and safe for concurrent readers and writers. Omitting it would leave
+      # the dev profile with the cold mode this volume exists to remove.
+      - npm_cache:/home/platform/.npm
+      # Provisioned package-manager versions, so a repository's declared toolchain is
+      # not re-downloaded after every `--force-recreate`. See the Dockerfile.
+      - corepack_cache:/home/platform/.cache/node/corepack
+
+  postgres:
+    logging:
+      driver: json-file
+      options:
+        # Container logs are not the durable record -- the database is -- but an
+        # unbounded log file fills the same volume the workspaces need, and this
+        # deployment shares one.
+        max-size: "50m"
+        max-file: "5"
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ai_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-platform}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-platform}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  redis:
+    logging:
+      driver: json-file
+      options:
+        # Container logs are not the durable record -- the database is -- but an
+        # unbounded log file fills the same volume the workspaces need, and this
+        # deployment shares one.
+        max-size: "50m"
+        max-file: "5"
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+volumes:
+  postgres_data:
+  redis_data:
+  workspace_data:
+  # Survives `docker compose up --force-recreate`, which is the whole point: the cache was
+  # previously inside the container's own filesystem, so every deploy discarded it.
+  npm_cache:
+  # Same rationale as npm_cache: a deploy must not discard provisioned toolchains.
+  corepack_cache:

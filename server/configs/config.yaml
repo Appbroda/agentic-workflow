@@ -1,0 +1,55 @@
+max_clarification_rounds: 10
+environment: development
+allowed_hosts:
+  - localhost
+  - 127.0.0.1
+max_engineer_review_cycles: 5
+# Raised from 5, then from 8, for the same reason the validation budget below was raised.
+# Once a rejected attempt carried its reviewer findings, features -039 and -040 answered a
+# different blocker on every attempt -- mount the component, then add the test, then satisfy
+# the lint rule the new test tripped -- and were still moving when the cycle limit stopped
+# them. -061 is the clearest case: its frontend was approved on the seventh attempt with the
+# tile mounted, and its backend answered a different failure on each of its eight before the
+# limit ended it mid-convergence.
+max_child_review_cycles: 12
+max_implementation_retries: 8
+# Raised from 2 once validation feedback carried the failing rules and files. Feature -058
+# went from 16 lint errors to 1 across its two attempts and then ran out of budget, having
+# demonstrated it was converging; before the diagnostics were restored a third attempt would
+# have repeated the second exactly and been worth nothing. Raised again to 5 because a lint
+# rejection now costs an attempt of its own: -040 added the integration test its review asked
+# for and spent its last attempt on the one lint error that test introduced. Raised again to
+# 8 after -041: its frontend spent four attempts on one failing test, then mounted the tile,
+# then gated it, and was stopped by the budget holding a single unresolved import name.
+max_validation_retries: 8
+max_repository_setup_retries: 1
+max_integration_review_cycles: 5
+max_contract_revision_cycles: 3
+# Upper bound on repositories implemented concurrently in one feature fan-out.
+max_parallel_workstreams: 4
+github_default_draft_pull_requests: true
+default_agent_timeout_seconds: 120
+# The repository's own lint command runs over the whole project before a commit; a React
+# build tree pushes that well past a single agent call's budget.
+commit_gate_timeout_seconds: 900
+# One `npm ci` on a cold cache, not an agent call, and a timeout here ends the workstream
+# rather than retrying. Observed on this platform: 37-54s warm, 224-378s cold or contended.
+dependency_install_timeout_seconds: 600
+# A repository's own test and build commands, not a model call.
+validation_command_timeout_seconds: 900
+# Completed or cancelled features whose auto-managed workspaces are kept for diagnosis.
+workspace_retention_features: 5
+# How long a feature that ended needing a human keeps its checkout before that checkout is
+# reclaimed too. Its artifacts, events and operation journal stay in the database either way.
+# Set to 0 to keep those checkouts indefinitely, which needs a volume sized for it.
+workspace_failed_retention_hours: 72
+# Concurrent live features. Raise it only alongside worker capacity and provider quota.
+max_concurrent_live_features: 3
+# Stop before clone/install when the workspace filesystem has less than 2 GiB free after safe
+# terminal-workspace cleanup. Override for deliberately smaller worker volumes.
+workspace_minimum_free_bytes: 2147483648
+default_agent_max_retries: 3
+confidence_threshold: 0.85
+workspace_root: /workspaces
+max_request_body_bytes: 1048576
+max_workspace_file_bytes: 1048576

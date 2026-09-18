@@ -1,0 +1,39 @@
+.venv
+.mypy_cache
+.pytest_cache
+.ruff_cache
+__pycache__
+*.py[cod]
+# The same at-any-depth rule the `.env` comment below spells out, applied to the two trees that
+# are large rather than secret. `.claude/worktrees` holds a full checkout per parallel session,
+# each with its own `server/.venv`, and a bare `.venv` pattern matches only the context root --
+# so on 2026-09-08 a deploy shipped 3.25GB of other sessions' virtualenvs to the daemon, filled
+# its disk mid-build, and took the running api down with it. Only `.claude/worktrees` is
+# excluded, never `.claude` itself: `.claude/settings.json` is tracked, and excluding a tracked
+# file reads as a deletion to the builder's identity check.
+.claude/worktrees
+**/.venv
+**/node_modules
+# Every .env, at any depth -- not just the one at the root. A bare `.env` pattern matches only
+# the context root, so `client/.env` was copied in and Vite baked the platform API key into the
+# built bundle inside the image. A secret in an image travels further than a secret on a page.
+.env
+**/.env
+**/.env.*
+!**/.env.example
+workspaces
+*.db
+.coverage
+coverage.xml
+htmlcov
+.claude/settings.local.json
+# Build outputs and dependency trees. Both are gitignored, so excluding them cannot upset the
+# builder's checkout-identity check, and copying a client node_modules into the context costs
+# hundreds of megabytes for files the image rebuilds from the lockfile anyway.
+node_modules
+client/dist
+
+# Nothing tracked may be excluded here. The builder stage verifies checkout identity with
+# `git status --porcelain` inside the context, so an excluded tracked file reads as a
+# deletion and fails the build. Runtime exclusion belongs in the builder's `rm -rf`, which
+# already drops `.codex-prompts` from the image.

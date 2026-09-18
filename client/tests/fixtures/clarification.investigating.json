@@ -1,0 +1,20 @@
+{
+  "feature_id": "feature-login",
+  "awaiting_answers": false,
+  "clarification_state": "investigating",
+  "technical_prd_artifact_id": "002_technical_prd.revision-2.json",
+  "clarification_rounds": 0,
+  "max_clarification_rounds": 10,
+  "questions": [
+    {
+      "question_id": "recon-backend-1",
+      "question": "Rely on the global middleware, or introduce per-route auth?",
+      "rationale": "In backend, the requirements assume: Authentication can be applied per route. The checkout instead has: Authentication is applied once, globally, in server/config/express.js. Evidence: server/config/express.js.",
+      "required": true,
+      "suggested_answer": "Follow what backend already does: Authentication is applied once, globally, in server/config/express.js.",
+      "suggestion_source": "Suggested from repository analysis of backend (server/config/express.js)",
+      "suggestion_confidence": "high"
+    }
+  ],
+  "previous_answers": {}
+}

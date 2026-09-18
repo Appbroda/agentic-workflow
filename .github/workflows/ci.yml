@@ -1,0 +1,223 @@
+# Every gate this repository has, on every push and every pull request.
+#
+# Before this file the only automation was `.pre-commit-config.yaml` -- ruff and mypy, no
+# pytest, no tiers, no canary. Ten tasks' worth of guards ran only when somebody remembered to
+# type the command.
+#
+# Two properties this file exists to hold, both of which are easy to lose silently:
+#
+#   * **A tier that passes by skipping certifies nothing.** The postgres and realrepo tiers
+#     deselect themselves when their dependency is absent, which is right for a local loop and
+#     catastrophic here -- a green check over 51 skipped tests reads as coverage. Both
+#     `REQUIRE_*` variables below turn a missing dependency into a failure. Do not remove them
+#     to "fix" a red build; a red build there means the runner lost a dependency.
+#   * **Nothing needs a credential.** The postgres tier provisions its own databases in a
+#     service container, the realrepo tier uses local bare repositories as origins and a
+#     scripted model double, and no job reaches a provider, a hosting service or the
+#     deployment's database. If a step ever appears to need a secret, something is reaching
+#     somewhere it should not.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+# Read-only. No job publishes anything: the container job builds and discards, and no job
+# pushes, comments or writes a check.
+permissions:
+  contents: read
+
+# A new push to a branch cancels that branch's in-flight run. Push and pull_request land in
+# different groups on purpose -- `github.ref` is `refs/heads/x` for one and `refs/pull/N/merge`
+# for the other -- so a pull request's run is not cancelled by a push to its own head.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  server:
+    name: server — lint, types, and all four Python tiers
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # PostgreSQL 16, because `docker-compose.yml` runs `postgres:16-alpine` and a tier passing
+    # on a different major than the deployment is a false green. `tests/postgres_support.py`
+    # resolves this from POSTGRES_TEST_URL below and creates `pytest_*` databases beside the
+    # maintenance one; it refuses by name to create, drop or migrate anything else.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: ai_platform
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d ai_platform"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # Named explicitly rather than left to the module's host/port defaults, so this job can
+      # only ever reach the throwaway service container above. There is no path from here to a
+      # deployment: the credentials are the compose file's development defaults and the host is
+      # this runner's loopback.
+      POSTGRES_TEST_URL: "postgresql+asyncpg://platform:platform@127.0.0.1:5432/postgres"
+
+      # ---------------------------------------------------------------------------------
+      # A recorded finding, and the only accommodation this pipeline makes for one.
+      #
+      # `Settings` has five required fields with no defaults, and `configs/settings.py` reads
+      # them from a `.env` at the repository root -- which is gitignored, so a clean checkout
+      # has none. 65 tests in the default tier call `load_settings()` without supplying them,
+      # so on a clean checkout they fail with `5 validation errors for
+      # _DirectoryScopedSettings`, and on a developer's machine they quietly adopt that
+      # developer's real PLATFORM_API_KEY and live DATABASE_URL. The second half is why this
+      # is a defect and not merely a CI gap.
+      #
+      # These are not secrets and are deliberately not GitHub Secrets. They are literals in a
+      # public file: no test authenticates with the key, the two model names name no real
+      # model and no provider is ever called, the database URL is in-process SQLite, and the
+      # cache URL is this runner's own loopback with nothing listening on it. There is no
+      # value here that could reach a deployment if it tried.
+      #
+      # The real fix -- the suite supplying its own configuration instead of inheriting a
+      # developer's -- belongs under server/ and is filed rather than landed here.
+      OPENAI_REASONING_MODEL: ci-placeholder-no-provider-is-called
+      OPENAI_CODING_MODEL: ci-placeholder-no-provider-is-called
+      PLATFORM_API_KEY: ci-placeholder-nothing-authenticates-with-this
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+      REDIS_URL: "redis://127.0.0.1:6379/0"
+
+    defaults:
+      run:
+        # Every gate runs from inside server/. The repository root is not a Python project.
+        working-directory: server
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Nothing here pushes, and a persisted token ends up in .git/config.
+          persist-credentials: false
+
+      # 3.12 because that is what the project targets: ruff's `target-version = "py312"` and
+      # mypy's `python_version = "3.12"`. `requires-python` admits 3.13, so leaving this to uv
+      # would silently type-check a version the deployment does not run.
+      - name: Install uv and Python 3.12
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: "0.10.4"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: server/uv.lock
+
+      # The realrepo tier runs a checkout's own toolchain as real subprocesses, so node, npm
+      # and pnpm have to exist. Both versions are the deployment's: the Dockerfile installs
+      # Node 22 from NodeSource and `pnpm@9.15.4` globally.
+      - name: Install Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+
+      - name: Install pnpm
+        run: npm install --global --no-audit --no-fund pnpm@9.15.4
+
+      # Separate from the gates so a lockfile that no longer resolves fails as itself rather
+      # than as a lint error, and so the cache above is warmed once.
+      - name: Sync the environment
+        run: uv sync --frozen
+
+      - name: Ruff lint
+        run: uv run ruff check .
+
+      - name: Ruff format
+        run: uv run ruff format --check .
+
+      - name: mypy
+        run: uv run mypy .
+
+      # The default tier, which includes the crash-window tests. One command, so adding
+      # `-n auto` or a `slow` marker later is an edit here and not a change to the pipeline.
+      - name: Default tier
+        run: uv run pytest
+
+      # REQUIRE_POSTGRES_TESTS makes an unreachable server `pytest.fail` instead of a skip.
+      - name: PostgreSQL tier
+        env:
+          REQUIRE_POSTGRES_TESTS: "1"
+        run: uv run pytest -m postgres
+
+      # REQUIRE_REAL_REPOSITORY_TESTS makes a missing node, npm, pnpm, ruff or pytest a
+      # failure instead of a skip. `uv run` puts the project venv's ruff and pytest on PATH,
+      # which is where the Python fixtures' toolchain comes from.
+      - name: Real-repository tier
+        env:
+          REQUIRE_REAL_REPOSITORY_TESTS: "1"
+        run: uv run pytest -m realrepo
+
+  client:
+    name: client — typecheck, lint, test, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: client
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # 22 because the Dockerfile builds this same client on `node:22-slim`.
+      - name: Install Node 22
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+  container:
+    name: container — the image the deployment runs
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      # `persist-credentials: false` is load-bearing here, not hygiene. The builder stage does
+      # `COPY . .` and .dockerignore deliberately keeps `.git` -- the checkout-identity check
+      # below needs it -- so a token left in `.git/config` would be baked into an image layer.
+      # The `rm -rf .git` that follows the COPY is a later layer and does not remove it.
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # A broken Dockerfile is currently discovered at deploy time. The build needs no
+      # registry credential -- every base image it pulls is public -- and nothing is pushed.
+      #
+      # BUILD_REVISION is not decoration: the builder refuses to produce an image unless it
+      # equals HEAD and the context is clean, because the API rejects an unknown identity.
+      # That check is itself part of what this job proves still works.
+      - name: Build the runtime image
+        run: |
+          docker build \
+            --build-arg "BUILD_REVISION=$(git rev-parse HEAD)" \
+            --target runtime \
+            --tag ai-platform:ci \
+            .

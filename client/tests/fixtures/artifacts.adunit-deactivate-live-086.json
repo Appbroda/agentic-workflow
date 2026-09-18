@@ -1,0 +1,2158 @@
+[
+ {
+  "artifact_id": "001_prd.json",
+  "artifact_type": "prd",
+  "schema_version": "1.0",
+  "producer": "api",
+  "timestamp": "2026-08-24T22:43:09.260941Z",
+  "metadata": {
+   "source": "api",
+   "feature_id": "adunit-deactivate-live-086"
+  },
+  "validation_status": "valid",
+  "payload": {
+   "title": "Deactivate ad units from the console",
+   "problem_statement": "The ad units list shows each unit's status, but an operator has no way to deactivate one. The backend's PATCH /api/inventoryunit/status endpoint sets status to ACTIVE only, and the console never calls it, so taking a unit out of service means going outside this tool.",
+   "goals": [
+    "Let the status-update endpoint set an ad unit to INACTIVE as well as ACTIVE.",
+    "Give the ad units list an action that deactivates the selected units."
+   ],
+   "user_stories": [
+    {
+     "story_id": "US-1",
+     "persona": "Ad operations manager",
+     "need": "deactivate ad units I select in the console",
+     "benefit": "I can take a unit out of service without leaving the admin tool",
+     "acceptance_criteria": [
+      "Selecting ad units and choosing deactivate sends those ad unit ids to the status endpoint with an INACTIVE target status.",
+      "The list reflects the new status after the request succeeds."
+     ]
+    }
+   ],
+   "requirements": [
+    {
+     "requirement_id": "REQ-1",
+     "description": "Extend the existing PATCH /api/inventoryunit/status endpoint to accept an explicit target status of ACTIVE or INACTIVE and apply it to the supplied ad unit ids. When the field is omitted the endpoint must keep its current behaviour of activating.",
+     "priority": "must",
+     "acceptance_criteria": [
+      "The request validation accepts an optional status field whose value is ACTIVE or INACTIVE and rejects any other value.",
+      "A request with status INACTIVE sets those ad units to the INACTIVE status value already defined in the repository's status constants.",
+      "A request with no status field still activates, so existing callers are unaffected.",
+      "The change is covered by tests in the repository's existing backend test suite."
+     ],
+     "dependencies": []
+    },
+    {
+     "requirement_id": "REQ-2",
+     "description": "Add a deactivate action to the console's ad units list that sends the selected ad unit ids to the status endpoint with the INACTIVE target status and refreshes the list.",
+     "priority": "must",
+     "acceptance_criteria": [
+      "The ad units API client module gains a request function that targets the status endpoint with a PATCH method and carries the selected ad unit ids and the INACTIVE status.",
+      "The ad units list renders a deactivate action that is disabled when no ad unit is selected.",
+      "The list data is refetched after a successful deactivate response.",
+      "The change is covered by a test in the console repository using its existing React testing setup."
+     ],
+     "dependencies": [
+      "REQ-1"
+     ]
+    }
+   ],
+   "constraints": [
+    "Follow each repository's existing code style, lint rules, and test framework.",
+    "Do not add a database migration or change the ad unit schema; the status field already exists.",
+    "Do not change existing endpoint paths or the response shapes of existing endpoints.",
+    "Do not introduce a new status value; use the status vocabulary the repository already defines."
+   ],
+   "out_of_scope": [
+    "Archiving ad units or any Google Ad Manager synchronisation.",
+    "Bulk deactivation through the existing Python archive script.",
+    "Role or permission changes."
+   ],
+   "stakeholders": [
+    "Ad operations",
+    "Platform team"
+   ]
+  }
+ },
+ {
+  "artifact_id": "002_technical_prd.json",
+  "artifact_type": "technical_prd",
+  "schema_version": "1.0",
+  "producer": "product_manager",
+  "timestamp": "2026-08-24T22:43:24.966598Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "001_prd.json"
+   ],
+   "model": "gpt-5.6-terra",
+   "response_id": "resp_0fe79cd05a073a84016a8cc8fee43087d1a85094180333cf0f",
+   "prompt_template": "product_manager/v1.jinja2"
+  },
+  "validation_status": "valid",
+  "payload": {
+   "title": "Deactivate ad units from the console",
+   "solution_summary": "Extend the existing PATCH /api/inventoryunit/status endpoint so callers can explicitly set supplied ad unit IDs to the repository-defined ACTIVE or INACTIVE status while preserving the current ACTIVE default when status is omitted. Add a deactivation action to the console ad units list that submits selected IDs with status INACTIVE and refreshes list data after a successful response. No schema, endpoint-path, existing-response-shape, permission, archive-script, or Google Ad Manager synchronization changes are included.",
+   "functional_requirements": [
+    {
+     "requirement_id": "REQ-1",
+     "description": "Extend PATCH /api/inventoryunit/status request handling to accept an optional status field, apply the requested repository-defined ACTIVE or INACTIVE status to the supplied ad unit IDs, and preserve existing activation behavior when status is omitted.",
+     "priority": "must",
+     "acceptance_criteria": [
+      "The endpoint request validation accepts an omitted status field and accepts status values ACTIVE and INACTIVE using the repository's existing status vocabulary or constants.",
+      "The endpoint rejects a request containing a status value other than ACTIVE or INACTIVE according to the repository's existing validation and error-handling conventions.",
+      "A valid request containing status INACTIVE updates the supplied ad unit IDs to the repository-defined INACTIVE status constant.",
+      "A valid request with no status field continues to update the supplied ad unit IDs to the repository-defined ACTIVE status constant.",
+      "The existing endpoint path and response shape are unchanged.",
+      "Backend tests in the repository's existing test suite cover explicit INACTIVE behavior, omitted-status ACTIVE compatibility, and invalid-status rejection."
+     ],
+     "dependencies": []
+    },
+    {
+     "requirement_id": "REQ-2",
+     "description": "Add a deactivate action to the console ad units list that deactivates selected ad units through the existing status endpoint and refreshes list data after a successful request.",
+     "priority": "must",
+     "acceptance_criteria": [
+      "The console ad units API client exposes a function that sends a PATCH request to /api/inventoryunit/status with the selected ad unit IDs and status INACTIVE.",
+      "The ad units list renders a deactivate action following existing console UI conventions.",
+      "The deactivate action is disabled when no ad unit is selected.",
+      "Invoking the enabled deactivate action sends the currently selected ad unit IDs with status INACTIVE.",
+      "After a successful deactivate response, the list's existing data-fetch or refresh mechanism is invoked so the displayed statuses are refreshed.",
+      "Console tests using the repository's existing React testing setup cover disabled-without-selection behavior, the INACTIVE status request, and refresh after a successful response."
+     ],
+     "dependencies": [
+      "REQ-1"
+     ]
+    }
+   ],
+   "non_functional_requirements": [
+    {
+     "requirement_id": "NFR-1",
+     "description": "Implement the backend and console changes using each repository's established code style, lint rules, request abstractions, UI patterns, and test framework.",
+     "priority": "must",
+     "acceptance_criteria": [
+      "Changed source files follow the conventions evident in adjacent endpoint, API-client, and ad-units-list code.",
+      "The repositories' applicable existing lint, type-check, build, and test commands complete successfully for the changed code.",
+      "The implementation reuses existing status constants or vocabulary rather than defining a new status value."
+     ],
+     "dependencies": [
+      "REQ-1",
+      "REQ-2"
+     ]
+    },
+    {
+     "requirement_id": "NFR-2",
+     "description": "Keep the status-update operation limited to validation and the existing status update path; the console request must not block the interface beyond its existing asynchronous request lifecycle.",
+     "priority": "should",
+     "acceptance_criteria": [
+      "The backend implementation performs no archive workflow, Google Ad Manager synchronization, schema migration, or unrelated external side effect as part of processing the status update.",
+      "The console uses the repository's existing asynchronous API request pattern and refreshes only after a successful response.",
+      "The code change does not add polling, retries, or new background processing for deactivation."
+     ],
+     "dependencies": [
+      "REQ-1",
+      "REQ-2"
+     ]
+    }
+   ],
+   "data_requirements": [
+    "Use the existing ad unit status field; do not add a database migration or change the ad unit schema.",
+    "The status request field is optional for backward compatibility.",
+    "When provided, status is limited to the repository-defined ACTIVE and INACTIVE values.",
+    "The status endpoint continues to receive the existing supplied ad unit ID collection format; no request or response shape changes are introduced.",
+    "The console sends the currently selected ad unit IDs and the literal or repository-defined INACTIVE status value through the existing status endpoint contract."
+   ],
+   "integration_requirements": [
+    "Use the existing PATCH /api/inventoryunit/status endpoint; do not add or change endpoint paths.",
+    "The console API client must issue a PATCH request compatible with the endpoint's existing request payload format, augmented only by the optional status field.",
+    "The console must use its existing ad units list data-fetch or refetch mechanism after a successful status update.",
+    "No Google Ad Manager synchronization, archive-script integration, or new external service integration is part of this work."
+   ],
+   "security_requirements": [
+    "Do not change roles, permissions, authentication, or authorization behavior; the existing endpoint access controls remain in effect.",
+    "Preserve existing backend request validation and error-handling conventions for invalid status input.",
+    "Do not expose new sensitive data or alter existing endpoint response shapes."
+   ],
+   "assumptions": [
+    "ACTIVE and INACTIVE are existing valid status values represented by repository-defined constants or an equivalent established vocabulary.",
+    "PATCH /api/inventoryunit/status already accepts the selected ad unit IDs in a format the console can send without changing the endpoint contract beyond the optional status field.",
+    "The backend and console may reside in separate repositories, each with its own established test and build commands.",
+    "The existing console list has a selection mechanism and an established data-refetch mechanism that can be reused.",
+    "Existing authorization permits the same users who can access the current status endpoint and ad units list to perform this action; no permission changes are requested.",
+    "No confirmation dialog, optimistic update behavior, error-message behavior, or post-action selection-clearing behavior is specified; existing console conventions should be retained."
+   ],
+   "unresolved_questions": [
+    {
+     "question_id": "UQ-1",
+     "question": "What is the exact existing request payload key and ID collection shape used by PATCH /api/inventoryunit/status?",
+     "rationale": "The PRD identifies the endpoint and supplied ad unit IDs but does not specify the precise payload contract; implementation must preserve it while adding the optional status field.",
+     "required": true
+    },
+    {
+     "question_id": "UQ-2",
+     "question": "Should the deactivate action be available for all selected ad units, including units already marked INACTIVE, or should it be conditionally disabled or filtered based on status?",
+     "rationale": "The PRD requires disabling only when no unit is selected and does not define behavior for mixed or already-inactive selections.",
+     "required": false
+    },
+    {
+     "question_id": "UQ-3",
+     "question": "What existing console convention should govern user-visible failure handling, confirmation, and selected-row state after a deactivation request?",
+     "rationale": "Success refresh behavior is defined, but error feedback, confirmation requirements, and whether selection is retained are not specified and may affect the UI implementation.",
+     "required": false
+    }
+   ]
+  }
+ },
+ {
+  "artifact_id": "003_architecture.json",
+  "artifact_type": "architecture",
+  "schema_version": "1.0",
+  "producer": "feature_planner",
+  "timestamp": "2026-08-24T22:46:27.489591Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "002_technical_prd.revision-3.json",
+    "015_repository_reconnaissance.admanager-server.json",
+    "015_repository_reconnaissance.ab-console-admin.json"
+   ],
+   "model": "gpt-5.6-terra",
+   "response_id": "resp_0739ad7b3dbc4c05016a8cc99aeb2887d19319266d58fa638d",
+   "prompt_template": "planner/feature_v1.jinja2",
+   "reconnaissance_artifact_ids": [
+    "015_repository_reconnaissance.admanager-server.json",
+    "015_repository_reconnaissance.ab-console-admin.json"
+   ],
+   "planned_from_checkout_evidence": true
+  },
+  "validation_status": "valid",
+  "payload": {
+   "system_overview": "The feature extends the existing authenticated inventory-unit status endpoint in Ad Manager Server to accept an optional target status while retaining ACTIVE as the omitted-status default. AB Console Admin consumes that unchanged endpoint through its existing ad-unit API utility and adds a per-row deactivate control to the AdUnits table. The action submits the row adUnitId as a one-element adUnitIds array with status INACTIVE, refreshes the existing list only after success, and reports failures through the established snackbar pattern.",
+   "technology_stack": {
+    "backend": "Node.js/Express, Joi validation, Mongoose-style AdunitModel access, Jest",
+    "frontend": "JavaScript React/Next.js console, reusable table cell renderers, notistack, React Testing Library/Jest",
+    "api": "Authenticated REST PATCH endpoint"
+   },
+   "repository_structure": [
+    "admanager-server: server/routes/adunits, server/controllers/adunit, server/services/adunit, server/validation, server/models, server/utils, server/tests",
+    "ab-console-admin: src/pages, src/apiUtils, src/components/table/tableCells, src/utils, src/components/table"
+   ],
+   "components": [
+    {
+     "component_id": "inventory-unit-status-route",
+     "name": "Inventory unit status route",
+     "responsibility": "Preserves PATCH /api/inventoryunit/status routing and validates the required adUnitIds array plus optional ACTIVE or INACTIVE status.",
+     "technology": "Express route and Joi validation",
+     "dependencies": [
+      "inventory-unit-status-controller"
+     ]
+    },
+    {
+     "component_id": "inventory-unit-status-controller",
+     "name": "Inventory unit status controller",
+     "responsibility": "Receives validated status-update requests, delegates the supplied IDs and optional target status, and preserves the existing successful message response.",
+     "technology": "Express controller",
+     "dependencies": [
+      "inventory-unit-status-service"
+     ]
+    },
+    {
+     "component_id": "inventory-unit-status-service",
+     "name": "Inventory unit status service",
+     "responsibility": "Updates existing ad-unit status values using ACTIVE when status is omitted and the requested validated ACTIVE or INACTIVE value when supplied.",
+     "technology": "JavaScript service and AdunitModel",
+     "dependencies": []
+    },
+    {
+     "component_id": "adunit-deactivation-api-client",
+     "name": "Console ad-unit status API client",
+     "responsibility": "Builds the authenticated PATCH request configuration for the existing inventory-unit status endpoint with a one-element ID array and INACTIVE status.",
+     "technology": "JavaScript API utility",
+     "dependencies": []
+    },
+    {
+     "component_id": "deactivate-adunit-table-cell",
+     "name": "Deactivate ad-unit table cell",
+     "responsibility": "Provides a per-row deactivation control, disables it for an already INACTIVE row, invokes the API client, refreshes data after success, and enqueues a failure snackbar.",
+     "technology": "React table cell renderer and notistack",
+     "dependencies": [
+      "adunit-deactivation-api-client"
+     ]
+    },
+    {
+     "component_id": "adunits-list-registration",
+     "name": "AdUnits list action registration",
+     "responsibility": "Registers the deactivate cell renderer with the existing table framework components and adds its column to the existing ad-unit column definitions.",
+     "technology": "React page and table column utilities",
+     "dependencies": [
+      "deactivate-adunit-table-cell"
+     ]
+    }
+   ],
+   "api_contracts": [
+    {
+     "method": "PATCH",
+     "path": "/api/inventoryunit/status",
+     "summary": "Sets the status of supplied inventory-unit IDs to ACTIVE or INACTIVE; omitted status remains backward-compatible and defaults to ACTIVE.",
+     "request_schema": "{ adUnitIds: string[]; status?: \"ACTIVE\" | \"INACTIVE\" }",
+     "response_schema": "{ message: string }",
+     "authentication_required": true
+    }
+   ],
+   "data_entities": [],
+   "decisions": [
+    {
+     "decision_id": "DEC-1",
+     "title": "Extend the existing status endpoint",
+     "decision": "Add optional status validation and status propagation to the existing PATCH /api/inventoryunit/status path rather than creating a deactivation endpoint.",
+     "rationale": "The established endpoint already accepts adUnitIds, has existing authentication and response behavior, and the requested change is limited to selecting ACTIVE or INACTIVE.",
+     "consequences": [
+      "Existing clients omitting status continue to activate ad units.",
+      "No endpoint path, response shape, schema migration, or new status vocabulary is introduced."
+     ]
+    },
+    {
+     "decision_id": "DEC-2",
+     "title": "Use per-row deactivation rather than list selection",
+     "decision": "Implement a deactivate control in each eligible ad-unit row and submit only that row ID as a one-element adUnitIds array.",
+     "rationale": "Checkout reconnaissance establishes that the console has no row-selection state or table selection mechanism, while the backend contract already accepts an array.",
+     "consequences": [
+      "No multi-select or checkbox infrastructure is added.",
+      "The control is disabled for rows already in INACTIVE status.",
+      "The PRD selection-oriented wording is fulfilled by the current row rather than unsupported bulk selection."
+     ]
+    },
+    {
+     "decision_id": "DEC-3",
+     "title": "Refresh after confirmed success",
+     "decision": "Invoke the existing AdUnits refetchData mechanism only after the deactivation request succeeds; report failure with enqueueSnackbar.",
+     "rationale": "This follows the established console asynchronous request and list-refresh conventions and avoids optimistic state mutation.",
+     "consequences": [
+      "Displayed statuses are reloaded from the existing list source after success.",
+      "No polling, retry, background processing, confirmation dialog, or selection-clearing behavior is added."
+     ]
+    },
+    {
+     "decision_id": "DEC-4",
+     "title": "Use isolated unit tests",
+     "decision": "Test backend service/controller behavior directly with model mocks and test the frontend cell renderer in isolation with the API utility mocked.",
+     "rationale": "The server has no safe assembled-app HTTP test harness, and importing the broader console page/router path reaches a pre-existing ESM parsing defect.",
+     "consequences": [
+      "No new HTTP integration harness or test configuration is introduced.",
+      "Tests cover request payloads, ACTIVE fallback, INACTIVE updates, invalid validation behavior, refresh, and error handling through isolated units."
+     ]
+    }
+   ],
+   "risks": [
+    {
+     "risk_id": "RISK-1",
+     "description": "The repository has parallel legacy and nested ad-unit route/controller/service structures, so changing the wrong grouping would leave the live endpoint unchanged.",
+     "likelihood": "medium",
+     "impact": "high",
+     "mitigation": "Change and test the nested server/routes/adunits, server/controllers/adunit, server/services/adunit, and server/validation modules identified for the /status route; preserve route registration."
+    },
+    {
+     "risk_id": "RISK-2",
+     "description": "Console test imports that reach AdUnits routing or CreateBatch can fail because of a pre-existing nanoid ESM transform configuration defect.",
+     "likelihood": "high",
+     "impact": "medium",
+     "mitigation": "Keep the new React test isolated to the table-cell component and mock the API utility; do not import AdUnits.js, routeUtils, Router, or CreateBatch."
+    },
+    {
+     "risk_id": "RISK-3",
+     "description": "The PRD initially assumes selected-row support, but the checked-in console does not have selection infrastructure.",
+     "likelihood": "high",
+     "impact": "medium",
+     "mitigation": "Use a per-row action with a one-element adUnitIds payload and do not introduce unrelated table-selection infrastructure."
+    }
+   ],
+   "deployment_strategy": "Deploy the backward-compatible backend change before the frontend. The endpoint remains compatible with existing activation callers because status is optional and defaults to ACTIVE; deploy the console after the backend is available, then roll back the console independently if needed."
+  }
+ },
+ {
+  "artifact_id": "006_code_completion.ab-console-admin.attempt-0.json",
+  "artifact_type": "code_completion",
+  "schema_version": "1.0",
+  "producer": "engineer",
+  "timestamp": "2026-08-24T22:50:41.821689Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "005_task_plan.json"
+   ],
+   "coding_model": "gpt-5.6-terra",
+   "coding_response_id": "resp_0d324dbf5a84fcf5016a8cca9afd8487d18b61a05cb9369350",
+   "prompt_template": "engineer/v1.jinja2",
+   "applied_formatting_commands": [
+    "/workspaces/adunit-deactivate-live-086-18e9c5d030/ab-console-admin/node_modules/.bin/prettier --write src/apiUtils/adUnits.apiUtils.js src/components/table/tableCells/DeactivateAdUnitCell.js src/components/table/tableCells/DeactivateAdUnitCell.test.js",
+    "/workspaces/adunit-deactivate-live-086-18e9c5d030/ab-console-admin/node_modules/.bin/eslint --fix src/apiUtils/adUnits.apiUtils.js src/components/table/tableCells/DeactivateAdUnitCell.js src/components/table/tableCells/DeactivateAdUnitCell.test.js",
+    "npm run lint"
+   ],
+   "applied_dependency_commands": [],
+   "child_attempt": 0
+  },
+  "validation_status": "valid",
+  "payload": {
+   "completion_status": "completed",
+   "summary": "Added the inventory-unit status PATCH API utility and an isolated deactivate action cell with disabled inactive-state handling, successful refresh behavior, failure notifications, and React tests for the row action.",
+   "file_changes": [
+    {
+     "path": "src/apiUtils/adUnits.apiUtils.js",
+     "change_type": "modified",
+     "description": "Updated by the configured coding executor."
+    },
+    {
+     "path": "src/components/table/tableCells/DeactivateAdUnitCell.js",
+     "change_type": "added",
+     "description": "Updated by the configured coding executor."
+    },
+    {
+     "path": "src/components/table/tableCells/DeactivateAdUnitCell.test.js",
+     "change_type": "added",
+     "description": "Updated by the configured coding executor."
+    }
+   ],
+   "validation_results": [],
+   "test_coverage_percent": null,
+   "remaining_work": [],
+   "commit_sha": null,
+   "production_files_changed": [
+    "src/apiUtils/adUnits.apiUtils.js",
+    "src/components/table/tableCells/DeactivateAdUnitCell.js"
+   ],
+   "test_files_changed": [
+    "src/components/table/tableCells/DeactivateAdUnitCell.test.js"
+   ],
+   "configuration_files_changed": [],
+   "requirements_implemented": [
+    "REQ-2",
+    "NFR-1",
+    "NFR-2"
+   ],
+   "requirements_not_implemented": [],
+   "implementation_expectations_satisfied": [
+    "REQ-2",
+    "NFR-1",
+    "NFR-2"
+   ],
+   "requirement_implementation_evidence": [
+    {
+     "requirement_id": "REQ-2",
+     "files": [
+      "src/apiUtils/adUnits.apiUtils.js",
+      "src/components/table/tableCells/DeactivateAdUnitCell.js"
+     ],
+     "symbols": [
+      "GET_AD_UNIT",
+      "BATCH_ROUTE",
+      "headers",
+      "getAllAdUnits",
+      "startDate",
+      "endDate",
+      "createAddUnits",
+      "retryBatch",
+      "createAddUnitsNewFlow",
+      "updateAdUnitsNewFlow",
+      "adUnitsToSend",
+      "dataToSend",
+      "updateAdUnitFloors",
+      "updateAdUnitStatus",
+      "DeactivateAdUnitCell",
+      "row",
+      "adUnitId",
+      "status",
+      "isInactive",
+      "refetchData",
+      "enqueueSnackbar",
+      "onDeactivate"
+     ],
+     "description": "Requirement is evidenced by the changed repository files.",
+     "validation_results": []
+    },
+    {
+     "requirement_id": "NFR-1",
+     "files": [
+      "src/apiUtils/adUnits.apiUtils.js",
+      "src/components/table/tableCells/DeactivateAdUnitCell.js"
+     ],
+     "symbols": [
+      "GET_AD_UNIT",
+      "BATCH_ROUTE",
+      "headers",
+      "getAllAdUnits",
+      "startDate",
+      "endDate",
+      "createAddUnits",
+      "retryBatch",
+      "createAddUnitsNewFlow",
+      "updateAdUnitsNewFlow",
+      "adUnitsToSend",
+      "dataToSend",
+      "updateAdUnitFloors",
+      "updateAdUnitStatus",
+      "DeactivateAdUnitCell",
+      "row",
+      "adUnitId",
+      "status",
+      "isInactive",
+      "refetchData",
+      "enqueueSnackbar",
+      "onDeactivate"
+     ],
+     "description": "Requirement is evidenced by the changed repository files.",
+     "validation_results": []
+    },
+    {
+     "requirement_id": "NFR-2",
+     "files": [
+      "src/apiUtils/adUnits.apiUtils.js",
+      "src/components/table/tableCells/DeactivateAdUnitCell.js"
+     ],
+     "symbols": [
+      "GET_AD_UNIT",
+      "BATCH_ROUTE",
+      "headers",
+      "getAllAdUnits",
+      "startDate",
+      "endDate",
+      "createAddUnits",
+      "retryBatch",
+      "createAddUnitsNewFlow",
+      "updateAdUnitsNewFlow",
+      "adUnitsToSend",
+      "dataToSend",
+      "updateAdUnitFloors",
+      "updateAdUnitStatus",
+      "DeactivateAdUnitCell",
+      "row",
+      "adUnitId",
+      "status",
+      "isInactive",
+      "refetchData",
+      "enqueueSnackbar",
+      "onDeactivate"
+     ],
+     "description": "Requirement is evidenced by the changed repository files.",
+     "validation_results": []
+    }
+   ],
+   "production_diff_fingerprint": "4ba3556e99cabf7dc66d89e8f91e439229f79ba0c8d9810c28dbbc6968b26bfb"
+  }
+ },
+ {
+  "artifact_id": "007_review.admanager-server.attempt-0.json",
+  "artifact_type": "review",
+  "schema_version": "1.0",
+  "producer": "reviewer",
+  "timestamp": "2026-08-24T22:53:48.409841Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "002_technical_prd.revision-3.json",
+    "005_task_plan.json",
+    "006_code_completion.admanager-server.attempt-0.json"
+   ],
+   "model": "gpt-5.6-terra",
+   "response_id": "resp_0aa80a2ac841e0aa016a8ccb5de44087d18b407a62398f6107",
+   "prompt_template": "reviewer/v1.jinja2",
+   "validation": [
+    {
+     "name": "npm",
+     "command": "npm run lint",
+     "passed": true,
+     "validation_type": "lint",
+     "repository_id": "admanager-server",
+     "repository_revision": "9346fb44875a9bea1685f3bb97420e39641c3b43584fa61718b2269d47c9bbbe",
+     "working_tree_fingerprint": "b66aee77ad290cf9db4a5703c5316e7cc7c6a8da87b177db88265a3d3804b426",
+     "status": "passed",
+     "exit_code": 0,
+     "timed_out": false,
+     "duration_seconds": 3.7396233350009425,
+     "operation_id": "operation-d6dc399e-b1b8-4fba-a8b1-0ab7c1f02d03",
+     "is_current": true,
+     "stdout_summary": "",
+     "stderr_summary": "",
+     "result_code": "LINT_VALIDATION_SUCCEEDED",
+     "failure_classification": null,
+     "required": true
+    },
+    {
+     "name": "npm",
+     "command": "npm run test",
+     "passed": true,
+     "validation_type": "test",
+     "repository_id": "admanager-server",
+     "repository_revision": "9346fb44875a9bea1685f3bb97420e39641c3b43584fa61718b2269d47c9bbbe",
+     "working_tree_fingerprint": "b66aee77ad290cf9db4a5703c5316e7cc7c6a8da87b177db88265a3d3804b426",
+     "status": "passed",
+     "exit_code": 0,
+     "timed_out": false,
+     "duration_seconds": 1.7739705850035534,
+     "operation_id": "operation-e23e6614-7f65-499d-b168-26669971612b",
+     "is_current": true,
+     "stdout_summary": "",
+     "stderr_summary": "",
+     "result_code": "TEST_VALIDATION_SUCCEEDED",
+     "failure_classification": null,
+     "required": true
+    },
+    {
+     "name": "npm",
+     "command": "npm run build",
+     "passed": true,
+     "validation_type": "build",
+     "repository_id": "admanager-server",
+     "repository_revision": "9346fb44875a9bea1685f3bb97420e39641c3b43584fa61718b2269d47c9bbbe",
+     "working_tree_fingerprint": "b66aee77ad290cf9db4a5703c5316e7cc7c6a8da87b177db88265a3d3804b426",
+     "status": "passed",
+     "exit_code": 0,
+     "timed_out": false,
+     "duration_seconds": 3.040619125997182,
+     "operation_id": "operation-9a1bf3a9-d111-4c63-ba2f-f12085996a71",
+     "is_current": true,
+     "stdout_summary": "",
+     "stderr_summary": "",
+     "result_code": "BUILD_VALIDATION_SUCCEEDED",
+     "failure_classification": null,
+     "required": true
+    }
+   ],
+   "review_scope": {
+    "scope_kind": "repository_workstream",
+    "repository_id": "admanager-server",
+    "workstream_id": "admanager-server-status-update",
+    "role": "backend",
+    "requirement_ids": [
+     "REQ-1",
+     "NFR-1",
+     "NFR-2"
+    ],
+    "scoped_requirements": [
+     {
+      "requirement_id": "REQ-1",
+      "responsibility": "implements",
+      "acceptance_criterion_ids": [
+       "REQ-1:ac-1",
+       "REQ-1:ac-2",
+       "REQ-1:ac-3",
+       "REQ-1:ac-4",
+       "REQ-1:ac-5",
+       "REQ-1:ac-6"
+      ]
+     },
+     {
+      "requirement_id": "NFR-1",
+      "responsibility": "implements",
+      "acceptance_criterion_ids": [
+       "NFR-1:ac-1",
+       "NFR-1:ac-2",
+       "NFR-1:ac-3"
+      ]
+     },
+     {
+      "requirement_id": "NFR-2",
+      "responsibility": "implements",
+      "acceptance_criterion_ids": [
+       "NFR-2:ac-1"
+      ]
+     }
+    ],
+    "out_of_scope_requirements": [
+     "REQ-2"
+    ],
+    "shared_requirements": [],
+    "task_ids": [
+     "admanager-server-status-contract",
+     "admanager-server-status-tests"
+    ],
+    "responsibilities": [
+     "Locate and modify the identified nested status route implementation rather than the parallel legacy ad-unit modules.",
+     "Extend activateAdunits validation so status is optional and limited to existing ADUNIT_STATUS.ACTIVE and ADUNIT_STATUS.INACTIVE values.",
+     "Pass the optional validated status through the existing controller and service while defaulting omitted status to ADUNIT_STATUS.ACTIVE.",
+     "Preserve PATCH /api/inventoryunit/status routing, existing authentication and authorization, and the existing {message} success response.",
+     "Add direct Jest service/controller and validation-focused coverage without importing the assembled Express application or adding an HTTP test harness.",
+     "Avoid schema changes, archive workflows, Google Ad Manager synchronization, polling, retries, or external side effects."
+    ],
+    "acceptance_criteria": [
+     "Validation accepts required adUnitIds with omitted status and with ACTIVE or INACTIVE status, and rejects other status values through existing validation conventions.",
+     "The status service updates supplied IDs to ADUNIT_STATUS.INACTIVE for explicit INACTIVE and ADUNIT_STATUS.ACTIVE when status is omitted.",
+     "The existing nested /status route remains PATCH-based and the controller retains the existing successful message response shape.",
+     "Direct Jest tests cover explicit INACTIVE status propagation, omitted-status ACTIVE fallback, and invalid-status validation rejection.",
+     "Changed backend code reuses ADUNIT_STATUS values and does not add a model/schema migration or external workflow."
+    ],
+    "acceptance_criteria_not_reviewable": [],
+    "test_requirements": [
+     "Add server/tests/adunitStatus.test.js using mocked AdunitModel access to verify service updateMany filters and status values.",
+     "Test controller success behavior directly with mocked request, response, and service dependencies.",
+     "Test the Joi validation schema directly for omitted status, ACTIVE, INACTIVE, and invalid status values.",
+     "Run the repository's configured Jest and applicable lint commands; do not import the assembled Express app because the existing auth route defect makes that unsafe."
+    ],
+    "contract_sections_consumed": [],
+    "contract_sections_implemented": [
+     "updateInventoryUnitStatus",
+     "InventoryUnitStatusUpdateRequest",
+     "InventoryUnitStatusUpdateResponse",
+     "ValidationErrorResponse"
+    ],
+    "expected_files_or_areas": [
+     "server/routes/adunits",
+     "server/controllers/adunit",
+     "server/services/adunit",
+     "server/validation",
+     "server/utils",
+     "server/tests"
+    ],
+    "implementation_expectations": [
+     {
+      "requirement_id": "REQ-1",
+      "expected_change_categories": [
+       "production",
+       "test",
+       "integration"
+      ],
+      "expected_source_areas": [
+       "server/routes/adunits",
+       "server/controllers/adunit",
+       "server/services/adunit",
+       "server/validation",
+       "server/utils",
+       "server/tests"
+      ],
+      "tests_required": true
+     },
+     {
+      "requirement_id": "NFR-1",
+      "expected_change_categories": [
+       "production",
+       "test",
+       "integration"
+      ],
+      "expected_source_areas": [
+       "server/controllers/adunit",
+       "server/services/adunit",
+       "server/validation",
+       "server/tests"
+      ],
+      "tests_required": true
+     },
+     {
+      "requirement_id": "NFR-2",
+      "expected_change_categories": [
+       "production",
+       "test",
+       "integration"
+      ],
+      "expected_source_areas": [
+       "server/controllers/adunit",
+       "server/services/adunit",
+       "server/tests"
+      ],
+      "tests_required": true
+     }
+    ],
+    "repository_revision": "00e43e6b68fec751904540fb4b9032879ebf63bd3655323656ff1b1560b8e635"
+   },
+   "review_evidence_version": "workspace-source-v1",
+   "reviewed_file_paths": [
+    "server/validation/adUnit.validation.js",
+    "server/tests/adunitStatus.test.js"
+   ],
+   "reviewed_content_fingerprint": "d19fb9f4684c68b5498729d8222dfa73ea42e7dafa1a374236dabad39a27c82b",
+   "manual_review_required": false,
+   "retryable": true,
+   "acceptance_criteria_not_reviewed": [],
+   "technology_profile": {
+    "repository_id": "admanager-server",
+    "primary_language": "Python",
+    "languages": [
+     "Python",
+     "JavaScript"
+    ],
+    "package_managers": [
+     "npm",
+     "pip"
+    ],
+    "frameworks": [
+     "Express"
+    ],
+    "test_frameworks": [
+     "Jest"
+    ],
+    "linters": [
+     "ESLint"
+    ],
+    "formatters": [
+     "Prettier"
+    ],
+    "typecheckers": [],
+    "build_tools": [],
+    "detected_files": [
+     ".eslintrc.js",
+     "jest.config.js",
+     "package-lock.json",
+     "package.json"
+    ],
+    "confidence": 1.0
+   },
+   "validation_plan": {
+    "repository_id": "admanager-server",
+    "technology_profile": {
+     "repository_id": "admanager-server",
+     "primary_language": "Python",
+     "languages": [
+      "Python",
+      "JavaScript"
+     ],
+     "package_managers": [
+      "npm",
+      "pip"
+     ],
+     "frameworks": [
+      "Express"
+     ],
+     "test_frameworks": [
+      "Jest"
+     ],
+     "linters": [
+      "ESLint"
+     ],
+     "formatters": [
+      "Prettier"
+     ],
+     "typecheckers": [],
+     "build_tools": [],
+     "detected_files": [
+      ".eslintrc.js",
+      "jest.config.js",
+      "package-lock.json",
+      "package.json"
+     ],
+     "confidence": 1.0
+    },
+    "commands": [
+     {
+      "validation_type": "lint",
+      "command": [
+       "npm",
+       "run",
+       "lint"
+      ],
+      "working_directory": ".",
+      "required": true,
+      "timeout_seconds": 120.0,
+      "success_exit_codes": [
+       0
+      ],
+      "environment": {}
+     },
+     {
+      "validation_type": "test",
+      "command": [
+       "npm",
+       "run",
+       "test"
+      ],
+      "working_directory": ".",
+      "required": true,
+      "timeout_seconds": 120.0,
+      "success_exit_codes": [
+       0
+      ],
+      "environment": {
+       "CI": "true"
+      }
+     },
+     {
+      "validation_type": "build",
+      "command": [
+       "npm",
+       "run",
+       "build"
+      ],
+      "working_directory": ".",
+      "required": true,
+      "timeout_seconds": 120.0,
+      "success_exit_codes": [
+       0
+      ],
+      "environment": {}
+     }
+    ],
+    "source": "repository_scripts"
+   },
+   "child_attempt": 0
+  },
+  "validation_status": "valid",
+  "payload": {
+   "verdict": "changes_requested",
+   "summary": "Validation now accepts the optional constrained status field, but the status value is not implemented or tested through the controller/service update path required by the scoped backend workstream.",
+   "requirement_checks": [
+    {
+     "requirement_id": "REQ-1",
+     "passed": false,
+     "evidence": "server/validation/adUnit.validation.js validates optional ACTIVE/INACTIVE status using ADUNIT_STATUS, and server/tests/adunitStatus.test.js covers validation cases. However, the bounded changed source contains no controller or service change passing status through or defaulting it to ACTIVE, and no direct service/controller tests verify updateMany behavior or the preserved controller response."
+    },
+    {
+     "requirement_id": "NFR-1",
+     "passed": true,
+     "evidence": "The validation implementation reuses existing ADUNIT_STATUS constants and follows the repository Joi style. Required lint, Jest, and build validations all passed on the current working tree."
+    },
+    {
+     "requirement_id": "NFR-2",
+     "passed": true,
+     "evidence": "The bounded changes are limited to request validation and validation-focused tests; they introduce no schema migration, external integration, archive operation, polling, retry, or background processing."
+    }
+   ],
+   "findings": [
+    {
+     "finding_id": "adunit-status-propagation-not-implemented",
+     "severity": "high",
+     "title": "Optional status is not propagated through the status update path",
+     "description": "The only production change is the Joi schema in server/validation/adUnit.validation.js. No bounded source change exists in the nested status controller or service to pass a validated status to the update operation, apply explicit INACTIVE, or default an omitted status to ADUNIT_STATUS.ACTIVE. Consequently, the implemented updateInventoryUnitStatus contract behavior is not evidenced and may remain hard-coded to the prior activation behavior.",
+     "recommendation": "Update the existing nested inventory-unit status controller and service so the controller forwards the optional validated status and the service uses status ?? ADUNIT_STATUS.ACTIVE in its updateMany $set operation. Preserve the existing PATCH route, authorization middleware, and {message} success response.",
+     "file_path": null,
+     "line_number": null,
+     "repository_id": "admanager-server",
+     "requirement_id": "REQ-1",
+     "contract_reference": "updateInventoryUnitStatus",
+     "responsibility": "implements",
+     "validated_revision": "9346fb44875a9bea1685f3bb97420e39641c3b43584fa61718b2269d47c9bbbe",
+     "evidence": "workspace_change_evidence contains only server/validation/adUnit.validation.js and server/tests/adunitStatus.test.js; neither provides controller/service status propagation or update behavior.",
+     "recommended_fix": "Modify the identified nested status controller/service implementation and add the status argument to the existing service call, with ADUNIT_STATUS.ACTIVE as the omitted-status fallback in the service.",
+     "finding_category": "contract"
+    },
+    {
+     "finding_id": "adunit-status-controller-service-tests-missing",
+     "severity": "high",
+     "title": "Required direct controller and service status tests are absent",
+     "description": "server/tests/adunitStatus.test.js tests only the Joi schema. It does not mock AdunitModel to verify updateMany filters and explicit INACTIVE/omitted ACTIVE values, nor does it test controller success behavior with mocked request, response, and service dependencies.",
+     "recommendation": "Extend server/tests/adunitStatus.test.js, or add focused adjacent tests, with direct mocked service/model and controller tests. Verify explicit INACTIVE reaches updateMany, omitted status results in ACTIVE, supplied adUnitIds are used in the update filter, and the controller returns the existing message response shape.",
+     "file_path": "server/tests/adunitStatus.test.js",
+     "line_number": 1,
+     "repository_id": "admanager-server",
+     "requirement_id": "REQ-1",
+     "contract_reference": "updateInventoryUnitStatus",
+     "responsibility": "validates",
+     "validated_revision": "9346fb44875a9bea1685f3bb97420e39641c3b43584fa61718b2269d47c9bbbe",
+     "evidence": "The test file imports only adUnitValidation and ADUNIT_STATUS and contains three Joi validation cases; it imports neither the status controller/service nor AdunitModel.",
+     "recommended_fix": "Add direct Jest tests using mocked AdunitModel access for service updateMany assertions and mocked req/res/service dependencies for controller success assertions, without importing the assembled Express application.",
+     "finding_category": "requirement"
+    }
+   ],
+   "architecture_assessment": "The validation-layer addition is appropriately narrow and uses the established ADUNIT_STATUS vocabulary, but the endpoint behavior spans validation, controller, and service layers. The controller/service portion required to implement the approved status-update contract is absent from the bounded changed source.",
+   "security_assessment": "The schema whitelists status to the existing ACTIVE and INACTIVE constants, preserving invalid-input rejection for the newly accepted field. No changed source alters authentication, authorization, sensitive-data exposure, or response serialization; however, end-to-end application of only the validated value cannot be confirmed until propagation is implemented.",
+   "test_coverage_assessment": "Required commands passed: npm run lint, npm run test, and npm run build. The new Jest coverage directly verifies omitted, ACTIVE, INACTIVE, and invalid validation inputs, but it lacks the required direct service updateMany and controller success-response coverage for explicit INACTIVE and omitted-status ACTIVE behavior."
+  }
+ },
+ {
+  "artifact_id": "008_pull_request.admanager-server.json",
+  "artifact_type": "pull_request",
+  "schema_version": "1.0",
+  "producer": "github",
+  "timestamp": "2026-08-24T23:12:27.926287Z",
+  "metadata": {
+   "feature_id": "adunit-deactivate-live-086",
+   "child_workflow_id": "adunit-deactivate-live-086:admanager-server",
+   "contract_version": "1.0.0",
+   "draft_requested": true
+  },
+  "validation_status": "valid",
+  "payload": {
+   "repository": "cryn3t/admanager_console-2.0",
+   "pull_request_number": 16,
+   "url": "https://github.com/cryn3t/admanager_console-2.0/pull/16",
+   "title": "[AI Feature adunit-deactivate-live-086] backend: Deactivate ad units from the console",
+   "body": "Feature ID: adunit-deactivate-live-086\nChild workflow ID: adunit-deactivate-live-086:admanager-server\nShared contract version: 1.0.0\nImplementation summary: admanager-server workstream approved.\nValidation summary: Repository review passed; the feature's integration gate approved.\nDeployment order: backend_first.\nFeature flag instructions: Follow the repository execution plan.\nRollback instructions: Follow the feature rollback plan.\nKnown limitations: Pull requests are never auto-merged. The integration gate checks contract conformance only and reads no repository diff, so behaviour across repositories is not reviewed by it.\nStatus: draft\nRelated pull requests: added after all coordinated PRs are created.",
+   "source_branch": "ai/adunit-deactivate-live-086-18e9c5d030/admanager-server/deactivate-ad-units-from-the-console",
+   "target_branch": "master",
+   "commit_sha": "6125992c892e64495d84779c42d318aa167a5868",
+   "labels": [
+    "automated",
+    "ai-feature",
+    "draft"
+   ],
+   "reviewers": [],
+   "state": "open"
+  }
+ },
+ {
+  "artifact_id": "009_integration_contract.json",
+  "artifact_type": "integration_contract",
+  "schema_version": "1.0",
+  "producer": "feature_planner",
+  "timestamp": "2026-08-24T22:46:27.490971Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "002_technical_prd.revision-3.json",
+    "015_repository_reconnaissance.admanager-server.json",
+    "015_repository_reconnaissance.ab-console-admin.json"
+   ],
+   "model": "gpt-5.6-terra",
+   "response_id": "resp_0739ad7b3dbc4c05016a8cc99aeb2887d19319266d58fa638d",
+   "prompt_template": "planner/feature_v1.jinja2",
+   "reconnaissance_artifact_ids": [
+    "015_repository_reconnaissance.admanager-server.json",
+    "015_repository_reconnaissance.ab-console-admin.json"
+   ],
+   "planned_from_checkout_evidence": true
+  },
+  "validation_status": "valid",
+  "payload": {
+   "feature_id": "adunit-deactivate-live-086",
+   "contract_version": "1.0.0",
+   "status": "approved",
+   "api_style": "rest",
+   "endpoints": [
+    {
+     "operation_id": "updateInventoryUnitStatus",
+     "method": "PATCH",
+     "path": "/api/inventoryunit/status",
+     "summary": "Updates supplied inventory-unit IDs to the requested ACTIVE or INACTIVE status; omitting status preserves legacy ACTIVE behavior.",
+     "request_schema": {
+      "$ref": "#/shared_schemas/InventoryUnitStatusUpdateRequest"
+     },
+     "response_schema": {
+      "$ref": "#/shared_schemas/InventoryUnitStatusUpdateResponse"
+     },
+     "query_parameters": [],
+     "path_parameters": [],
+     "headers": [],
+     "authentication_required": true,
+     "authorization_requirements": [
+      "existing-inventory-unit-status-access"
+     ],
+     "success_status_codes": [
+      200
+     ],
+     "error_codes": [
+      "VALIDATION_ERROR",
+      "UNAUTHENTICATED",
+      "UNAUTHORIZED"
+     ],
+     "version": "v1"
+    }
+   ],
+   "shared_schemas": [
+    {
+     "name": "InventoryUnitStatusUpdateRequest",
+     "description": "Backward-compatible request body for updating the status of one or more existing inventory units.",
+     "json_schema": {
+      "type": "object",
+      "required": [
+       "adUnitIds"
+      ],
+      "properties": {
+       "adUnitIds": {
+        "type": "array",
+        "items": {
+         "type": "string",
+         "minLength": 1
+        }
+       },
+       "status": {
+        "type": "string",
+        "enum": [
+         "ACTIVE",
+         "INACTIVE"
+        ]
+       }
+      },
+      "additionalProperties": true
+     }
+    },
+    {
+     "name": "InventoryUnitStatusUpdateResponse",
+     "description": "Existing successful status-update response shape.",
+     "json_schema": {
+      "type": "object",
+      "required": [
+       "message"
+      ],
+      "properties": {
+       "message": {
+        "type": "string"
+       }
+      },
+      "additionalProperties": true
+     }
+    },
+    {
+     "name": "ValidationErrorResponse",
+     "description": "Repository-standard validation error response returned when request validation rejects an invalid status or invalid ID payload.",
+     "json_schema": {
+      "type": "object",
+      "additionalProperties": true
+     }
+    }
+   ],
+   "authentication_contract": {
+    "scheme": "Existing server authentication middleware",
+    "header_name": null,
+    "description": "Authentication behavior, credentials, and middleware remain unchanged from the existing inventory-unit status endpoint."
+   },
+   "authorization_rules": [
+    {
+     "rule_id": "existing-inventory-unit-status-access",
+     "description": "The operation retains the endpoint's existing authorization and role-permission behavior; this feature introduces no permission changes.",
+     "applies_to_operation_ids": [
+      "updateInventoryUnitStatus"
+     ]
+    }
+   ],
+   "error_contracts": [
+    {
+     "code": "VALIDATION_ERROR",
+     "status_code": 400,
+     "description": "Returned through the existing validation and error-handling conventions when status is supplied with a value other than ACTIVE or INACTIVE, or when the required adUnitIds payload is invalid.",
+     "schema_definition": {
+      "$ref": "#/shared_schemas/ValidationErrorResponse"
+     }
+    },
+    {
+     "code": "UNAUTHENTICATED",
+     "status_code": 401,
+     "description": "Returned according to existing authentication behavior when the caller is not authenticated.",
+     "schema_definition": null
+    },
+    {
+     "code": "UNAUTHORIZED",
+     "status_code": 403,
+     "description": "Returned according to existing authorization behavior when the caller lacks access to the endpoint.",
+     "schema_definition": null
+    }
+   ],
+   "event_contracts": [],
+   "environment_variables": [],
+   "compatibility_policy": {
+    "policy": "The existing PATCH path, required adUnitIds collection shape, authentication behavior, authorization behavior, and successful response shape are preserved. The only contract addition is an optional status field restricted to ACTIVE and INACTIVE.",
+    "breaking_change_allowed": false,
+    "migration_requirements": [
+     "No database migration or schema migration is required.",
+     "Existing callers may continue omitting status and receive ACTIVE behavior."
+    ],
+    "rollback_requirements": [
+     "A backend rollback must restore the prior ACTIVE-only implementation only after confirming no deployed client depends on explicit INACTIVE requests.",
+     "A frontend rollback can remove the per-row action without affecting existing activation callers."
+    ]
+   },
+   "owning_workstreams": [
+    "admanager-server",
+    "ab-console-admin"
+   ],
+   "approved_at": "2026-08-24T22:46:27.490889Z",
+   "openapi_document": {
+    "openapi": "3.1.0",
+    "info": {
+     "title": "Feature adunit-deactivate-live-086",
+     "version": "1.0.0"
+    },
+    "paths": {
+     "/api/inventoryunit/status": {
+      "patch": {
+       "operationId": "updateInventoryUnitStatus",
+       "summary": "Updates supplied inventory-unit IDs to the requested ACTIVE or INACTIVE status; omitting status preserves legacy ACTIVE behavior.",
+       "responses": {
+        "200": {
+         "description": "Success response",
+         "content": {
+          "application/json": {
+           "schema": {
+            "$ref": "#/shared_schemas/InventoryUnitStatusUpdateResponse"
+           }
+          }
+         }
+        }
+       },
+       "requestBody": {
+        "required": true,
+        "content": {
+         "application/json": {
+          "schema": {
+           "$ref": "#/shared_schemas/InventoryUnitStatusUpdateRequest"
+          }
+         }
+        }
+       },
+       "security": [
+        {
+         "contractAuth": []
+        }
+       ]
+      }
+     }
+    },
+    "components": {
+     "schemas": {
+      "InventoryUnitStatusUpdateRequest": {
+       "type": "object",
+       "required": [
+        "adUnitIds"
+       ],
+       "properties": {
+        "adUnitIds": {
+         "type": "array",
+         "items": {
+          "type": "string",
+          "minLength": 1
+         }
+        },
+        "status": {
+         "type": "string",
+         "enum": [
+          "ACTIVE",
+          "INACTIVE"
+         ]
+        }
+       },
+       "additionalProperties": true
+      },
+      "InventoryUnitStatusUpdateResponse": {
+       "type": "object",
+       "required": [
+        "message"
+       ],
+       "properties": {
+        "message": {
+         "type": "string"
+        }
+       },
+       "additionalProperties": true
+      },
+      "ValidationErrorResponse": {
+       "type": "object",
+       "additionalProperties": true
+      }
+     },
+     "securitySchemes": {
+      "contractAuth": {
+       "type": "http",
+       "scheme": "Existing server authentication middleware",
+       "description": "Authentication behavior, credentials, and middleware remain unchanged from the existing inventory-unit status endpoint."
+      }
+     }
+    }
+   }
+  }
+ },
+ {
+  "artifact_id": "010_repository_execution_plan.json",
+  "artifact_type": "repository_execution_plan",
+  "schema_version": "1.0",
+  "producer": "feature_planner",
+  "timestamp": "2026-08-24T22:46:27.492649Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "002_technical_prd.revision-3.json",
+    "009_integration_contract.json"
+   ],
+   "model": "gpt-5.6-terra",
+   "response_id": "resp_0739ad7b3dbc4c05016a8cc99aeb2887d19319266d58fa638d",
+   "prompt_template": "planner/feature_v1.jinja2",
+   "reconnaissance_artifact_ids": [
+    "015_repository_reconnaissance.admanager-server.json",
+    "015_repository_reconnaissance.ab-console-admin.json"
+   ],
+   "planned_from_checkout_evidence": true,
+   "dropped_dependency_workstream_ids": {}
+  },
+  "validation_status": "valid",
+  "payload": {
+   "feature_id": "adunit-deactivate-live-086",
+   "contract_artifact_id": "009_integration_contract.json",
+   "workstreams": [
+    {
+     "workstream_id": "admanager-server-status-update",
+     "repository_id": "admanager-server",
+     "role": "backend",
+     "requirement_ids": [
+      "REQ-1",
+      "NFR-1",
+      "NFR-2"
+     ],
+     "scoped_requirements": [
+      {
+       "requirement_id": "REQ-1",
+       "acceptance_criterion_ids": [
+        "REQ-1:ac-1",
+        "REQ-1:ac-2",
+        "REQ-1:ac-3",
+        "REQ-1:ac-4",
+        "REQ-1:ac-5",
+        "REQ-1:ac-6"
+       ],
+       "responsibility": "implements"
+      },
+      {
+       "requirement_id": "NFR-1",
+       "acceptance_criterion_ids": [
+        "NFR-1:ac-1",
+        "NFR-1:ac-2",
+        "NFR-1:ac-3"
+       ],
+       "responsibility": "implements"
+      },
+      {
+       "requirement_id": "NFR-2",
+       "acceptance_criterion_ids": [
+        "NFR-2:ac-1"
+       ],
+       "responsibility": "implements"
+      }
+     ],
+     "out_of_scope_requirements": [
+      "REQ-2"
+     ],
+     "shared_requirements": [],
+     "responsibilities": [
+      "Locate and modify the identified nested status route implementation rather than the parallel legacy ad-unit modules.",
+      "Extend activateAdunits validation so status is optional and limited to existing ADUNIT_STATUS.ACTIVE and ADUNIT_STATUS.INACTIVE values.",
+      "Pass the optional validated status through the existing controller and service while defaulting omitted status to ADUNIT_STATUS.ACTIVE.",
+      "Preserve PATCH /api/inventoryunit/status routing, existing authentication and authorization, and the existing {message} success response.",
+      "Add direct Jest service/controller and validation-focused coverage without importing the assembled Express application or adding an HTTP test harness.",
+      "Avoid schema changes, archive workflows, Google Ad Manager synchronization, polling, retries, or external side effects."
+     ],
+     "task_ids": [
+      "admanager-server-status-contract",
+      "admanager-server-status-tests"
+     ],
+     "dependency_workstream_ids": [],
+     "contract_sections_consumed": [],
+     "contract_sections_implemented": [
+      "updateInventoryUnitStatus",
+      "InventoryUnitStatusUpdateRequest",
+      "InventoryUnitStatusUpdateResponse",
+      "ValidationErrorResponse"
+     ],
+     "acceptance_criteria": [
+      "Validation accepts required adUnitIds with omitted status and with ACTIVE or INACTIVE status, and rejects other status values through existing validation conventions.",
+      "The status service updates supplied IDs to ADUNIT_STATUS.INACTIVE for explicit INACTIVE and ADUNIT_STATUS.ACTIVE when status is omitted.",
+      "The existing nested /status route remains PATCH-based and the controller retains the existing successful message response shape.",
+      "Direct Jest tests cover explicit INACTIVE status propagation, omitted-status ACTIVE fallback, and invalid-status validation rejection.",
+      "Changed backend code reuses ADUNIT_STATUS values and does not add a model/schema migration or external workflow."
+     ],
+     "test_requirements": [
+      "Add server/tests/adunitStatus.test.js using mocked AdunitModel access to verify service updateMany filters and status values.",
+      "Test controller success behavior directly with mocked request, response, and service dependencies.",
+      "Test the Joi validation schema directly for omitted status, ACTIVE, INACTIVE, and invalid status values.",
+      "Run the repository's configured Jest and applicable lint commands; do not import the assembled Express app because the existing auth route defect makes that unsafe."
+     ],
+     "documentation_requirements": [],
+     "expected_files_or_areas": [
+      "server/routes/adunits",
+      "server/controllers/adunit",
+      "server/services/adunit",
+      "server/validation",
+      "server/utils",
+      "server/tests"
+     ],
+     "required": true,
+     "implementation_expectations": [
+      {
+       "requirement_id": "REQ-1",
+       "expected_change_categories": [
+        "production",
+        "test",
+        "integration"
+       ],
+       "expected_source_areas": [
+        "server/routes/adunits",
+        "server/controllers/adunit",
+        "server/services/adunit",
+        "server/validation",
+        "server/utils",
+        "server/tests"
+       ],
+       "tests_required": true
+      },
+      {
+       "requirement_id": "NFR-1",
+       "expected_change_categories": [
+        "production",
+        "test",
+        "integration"
+       ],
+       "expected_source_areas": [
+        "server/controllers/adunit",
+        "server/services/adunit",
+        "server/validation",
+        "server/tests"
+       ],
+       "tests_required": true
+      },
+      {
+       "requirement_id": "NFR-2",
+       "expected_change_categories": [
+        "production",
+        "test",
+        "integration"
+       ],
+       "expected_source_areas": [
+        "server/controllers/adunit",
+        "server/services/adunit",
+        "server/tests"
+       ],
+       "tests_required": true
+      }
+     ]
+    },
+    {
+     "workstream_id": "ab-console-admin-row-deactivation",
+     "repository_id": "ab-console-admin",
+     "role": "frontend",
+     "requirement_ids": [
+      "REQ-2",
+      "NFR-1",
+      "NFR-2"
+     ],
+     "scoped_requirements": [
+      {
+       "requirement_id": "REQ-2",
+       "acceptance_criterion_ids": [
+        "REQ-2:ac-1",
+        "REQ-2:ac-2",
+        "REQ-2:ac-4",
+        "REQ-2:ac-5",
+        "REQ-2:ac-6"
+       ],
+       "responsibility": "implements"
+      },
+      {
+       "requirement_id": "NFR-1",
+       "acceptance_criterion_ids": [
+        "NFR-1:ac-1",
+        "NFR-1:ac-2",
+        "NFR-1:ac-3"
+       ],
+       "responsibility": "implements"
+      },
+      {
+       "requirement_id": "NFR-2",
+       "acceptance_criterion_ids": [
+        "NFR-2:ac-2",
+        "NFR-2:ac-3"
+       ],
+       "responsibility": "implements"
+      }
+     ],
+     "out_of_scope_requirements": [
+      "REQ-1"
+     ],
+     "shared_requirements": [],
+     "responsibilities": [
+      "Consume the approved updateInventoryUnitStatus contract through src/apiUtils/adUnits.apiUtils.js.",
+      "Implement a single-row action because checkout evidence confirms no selected-row state or multi-select table support exists.",
+      "Add and register a table-cell renderer through the existing AdUnits page frameworkComponents wiring and adUnitColumns utility.",
+      "Disable the row action when the row status is already INACTIVE; do not add unsupported selection infrastructure.",
+      "Submit {adUnitIds: [rowAdUnitId], status: 'INACTIVE'} using the established asynchronous API utility pattern.",
+      "Call the existing refetchData mechanism after successful completion and use enqueueSnackbar to report request failures.",
+      "Test the cell renderer in isolation and avoid imports that reach AdUnits.js, routeUtils, Router, or CreateBatch."
+     ],
+     "task_ids": [
+      "ab-console-admin-status-api-client",
+      "ab-console-admin-deactivate-cell",
+      "ab-console-admin-deactivate-cell-tests"
+     ],
+     "dependency_workstream_ids": [],
+     "contract_sections_consumed": [
+      "updateInventoryUnitStatus",
+      "InventoryUnitStatusUpdateRequest",
+      "InventoryUnitStatusUpdateResponse",
+      "ValidationErrorResponse"
+     ],
+     "contract_sections_implemented": [],
+     "acceptance_criteria": [
+      "The ad-unit API utility builds a PATCH request to the existing inventory-unit status path with a one-element adUnitIds array and INACTIVE status.",
+      "The existing AdUnits table receives a registered per-row deactivate cell renderer and corresponding column definition.",
+      "The per-row control is disabled for an already INACTIVE ad unit and enabled for another status.",
+      "An enabled row action submits that row's adUnitId with status INACTIVE, refreshes via the supplied refetchData callback only after success, and enqueues a snackbar on failure.",
+      "Isolated React tests assert rendered disabled and enabled states, the INACTIVE request payload, successful refresh behavior, and failure notification behavior without relying on API call counts.",
+      "Changed code follows existing API-utility, table-cell, column-definition, and asynchronous request patterns without adding polling, retries, background processing, or a confirmation dialog."
+     ],
+     "test_requirements": [
+      "Add src/components/table/tableCells/DeactivateAdUnitCell.test.js using the configured React Testing Library/Jest setup.",
+      "Mock src/apiUtils/adUnits.apiUtils.js and assert the request payload rather than API invocation count.",
+      "Render the new cell component in isolation with row props, refetchData, and mocked enqueueSnackbar behavior.",
+      "Cover inactive-row disabled behavior, enabled-row INACTIVE payload, refresh after success, and snackbar behavior after failure.",
+      "Do not import src/pages/AdUnits.js, src/utils/routeUtils.js, src/router/Router.js, or code paths reaching src/components/adUnits/CreateBatch.js."
+     ],
+     "documentation_requirements": [],
+     "expected_files_or_areas": [
+      "src/apiUtils",
+      "src/components/table/tableCells",
+      "src/components/table",
+      "src/pages",
+      "src/utils"
+     ],
+     "required": true,
+     "implementation_expectations": [
+      {
+       "requirement_id": "REQ-2",
+       "expected_change_categories": [
+        "production",
+        "test",
+        "integration"
+       ],
+       "expected_source_areas": [
+        "src/apiUtils",
+        "src/components/table/tableCells",
+        "src/components/table",
+        "src/pages",
+        "src/utils"
+       ],
+       "tests_required": true
+      },
+      {
+       "requirement_id": "NFR-1",
+       "expected_change_categories": [
+        "production",
+        "test",
+        "integration"
+       ],
+       "expected_source_areas": [
+        "src/apiUtils",
+        "src/components/table/tableCells",
+        "src/pages",
+        "src/utils"
+       ],
+       "tests_required": true
+      },
+      {
+       "requirement_id": "NFR-2",
+       "expected_change_categories": [
+        "production",
+        "test",
+        "integration"
+       ],
+       "expected_source_areas": [
+        "src/apiUtils",
+        "src/components/table/tableCells",
+        "src/pages"
+       ],
+       "tests_required": true
+      }
+     ]
+    }
+   ],
+   "execution_order": [
+    "admanager-server-status-update",
+    "ab-console-admin-row-deactivation"
+   ],
+   "parallel_groups": [
+    [
+     "admanager-server-status-update",
+     "ab-console-admin-row-deactivation"
+    ]
+   ],
+   "recommended_merge_order": [],
+   "integration_test_plan": [
+    "Run Ad Manager Server Jest coverage for direct validation, controller, and mocked service behavior; do not import the assembled Express app or establish a new HTTP integration harness.",
+    "Run AB Console Admin's configured React test command against the isolated DeactivateAdUnitCell test with the ad-unit API utility mocked.",
+    "Verify contract compatibility through tests and code review: the frontend request configuration must use PATCH /api/inventoryunit/status and send {adUnitIds:[rowAdUnitId],status:'INACTIVE'}, while the backend accepts that payload and preserves omitted-status ACTIVE behavior.",
+    "Run applicable repository lint, build, and test commands for each changed repository."
+   ],
+   "merge_strategy": "backend_first",
+   "deployment_strategy": "backend_first",
+   "feature_flag_strategy": [
+    "No feature flag is required because the backend addition is backward-compatible and the frontend action is isolated to eligible rows.",
+    "If operational control is required, deploy the frontend independently after the backend without changing the API contract."
+   ],
+   "rollback_strategy": [
+    "Roll back AB Console Admin first to remove the new deactivate control while retaining the backward-compatible backend endpoint behavior.",
+    "If backend rollback is necessary, verify no deployed console version can issue explicit INACTIVE requests before restoring the prior ACTIVE-only service behavior.",
+    "No data migration rollback is required because the feature updates the existing status field only."
+   ]
+  }
+ },
+ {
+  "artifact_id": "011_child_workflow_result.ab-console-admin.attempt-0.json",
+  "artifact_type": "child_workflow_result",
+  "schema_version": "1.0",
+  "producer": "child_workflow",
+  "timestamp": "2026-08-24T22:50:42.106037Z",
+  "metadata": {
+   "contract_artifact_id": "009_integration_contract.json",
+   "contract_version": "1.0.0",
+   "child_retry_count": 0,
+   "commit_sha": null,
+   "implementation_retry_count": 0,
+   "validation_retry_count": 0,
+   "repository_setup_retry_count": 0,
+   "integration_retry_count": 0,
+   "deterministic_gate": true,
+   "wiring_repair": {
+    "target_path": "src/components/adUnits/Batches.js",
+    "example_path": "src/components/table/tableCells/ActionCell.js",
+    "symbol": "DeactivateAdUnitCell",
+    "added_path": "src/components/table/tableCells/DeactivateAdUnitCell.js",
+    "problem": "never_referenced"
+   },
+   "source_artifact_ids": [
+    "006_code_completion.ab-console-admin.attempt-0.json"
+   ],
+   "retry_refusal_reason": "Attempt 1 may proceed with a changed strategy."
+  },
+  "validation_status": "valid",
+  "payload": {
+   "feature_id": "adunit-deactivate-live-086",
+   "parent_workflow_id": "adunit-deactivate-live-086",
+   "child_workflow_id": "adunit-deactivate-live-086:ab-console-admin",
+   "repository_id": "ab-console-admin",
+   "workstream_id": "ab-console-admin-row-deactivation",
+   "branch_name": "ai/adunit-deactivate-live-086-18e9c5d030/ab-console-admin/deactivate-ad-units-from-the-console",
+   "workspace_path": "/workspaces/adunit-deactivate-live-086-18e9c5d030/ab-console-admin",
+   "code_completion_artifact_id": "006_code_completion.ab-console-admin.attempt-0.json",
+   "review_artifact_id": null,
+   "changed_files": [
+    {
+     "path": "src/apiUtils/adUnits.apiUtils.js",
+     "change_type": "modified",
+     "description": "Updated by the configured coding executor."
+    },
+    {
+     "path": "src/components/table/tableCells/DeactivateAdUnitCell.js",
+     "change_type": "added",
+     "description": "Updated by the configured coding executor."
+    },
+    {
+     "path": "src/components/table/tableCells/DeactivateAdUnitCell.test.js",
+     "change_type": "added",
+     "description": "Updated by the configured coding executor."
+    }
+   ],
+   "validation_results": [],
+   "status": "failed",
+   "blocking_issues": [
+    "src/components/table/tableCells/DeactivateAdUnitCell.js was added but no production file refers to it, so the running application cannot reach it. Edit src/components/adUnits/Batches.js, which is where this repository registers modules of this kind: it already reaches the neighbouring src/components/table/tableCells/ActionCell.js. Add the same kind of reference for src/components/table/tableCells/DeactivateAdUnitCell.js there, using an `edits` entry so the rest of that file is untouched. Do not add the reference to src/components/table/tableCells/ActionCell.js itself, which would make src/components/table/tableCells/DeactivateAdUnitCell.js reachable only through an unrelated module."
+   ],
+   "pull_request_readiness": false,
+   "contract_sections_consumed": [
+    "updateInventoryUnitStatus",
+    "InventoryUnitStatusUpdateRequest",
+    "InventoryUnitStatusUpdateResponse",
+    "ValidationErrorResponse"
+   ],
+   "contract_sections_implemented": [],
+   "technology_profile": null,
+   "validation_plan": null,
+   "current_revision": null,
+   "current_validation_results": [],
+   "superseded_validation_count": 0,
+   "scoped_requirements": [
+    {
+     "requirement_id": "REQ-2",
+     "acceptance_criterion_ids": [
+      "REQ-2:ac-1",
+      "REQ-2:ac-2",
+      "REQ-2:ac-4",
+      "REQ-2:ac-5",
+      "REQ-2:ac-6"
+     ],
+     "responsibility": "implements"
+    },
+    {
+     "requirement_id": "NFR-1",
+     "acceptance_criterion_ids": [
+      "NFR-1:ac-1",
+      "NFR-1:ac-2",
+      "NFR-1:ac-3"
+     ],
+     "responsibility": "implements"
+    },
+    {
+     "requirement_id": "NFR-2",
+     "acceptance_criterion_ids": [
+      "NFR-2:ac-2",
+      "NFR-2:ac-3"
+     ],
+     "responsibility": "implements"
+    }
+   ],
+   "out_of_scope_requirements": [
+    "REQ-1"
+   ],
+   "preflight_result": {
+    "repository_id": "ab-console-admin",
+    "revision": "735e318a308ea1cea0a0ce4f72fa79bb751e321a7cf27ae533988da0677c7393",
+    "package_manager": "npm",
+    "package_managers": [
+     "npm"
+    ],
+    "dependency_install_command": [
+     "npm",
+     "ci"
+    ],
+    "dependency_install_commands": [
+     [
+      "npm",
+      "ci"
+     ]
+    ],
+    "dependency_install_working_directories": [
+     "."
+    ],
+    "dependency_install_status": "installed",
+    "configured_scripts": {
+     "start": "react-scripts start",
+     "build": "react-scripts build",
+     "test": "react-scripts test",
+     "eject": "react-scripts eject",
+     "lint": "eslint .",
+     "lint:fix": "eslint . --fix",
+     "prepare": "husky install",
+     "format": "prettier --write './**/*.{js,jsx,ts,tsx,css,md,json}' --config ./.prettierrc.json"
+    },
+    "source_directories": [
+     ".husky",
+     ".husky/_",
+     "public",
+     "src",
+     "src/Icons",
+     "src/apiUtils",
+     "src/components",
+     "src/components/Hoc",
+     "src/components/Hoc/chatBox",
+     "src/components/activites",
+     "src/components/adUnits",
+     "src/components/adUnits/placement",
+     "src/components/adUnits/pricingRule",
+     "src/components/analytics",
+     "src/components/apps",
+     "src/components/employee",
+     "src/components/home",
+     "src/components/i18n",
+     "src/components/i18n/translations/en",
+     "src/components/invoice",
+     "src/components/optimization",
+     "src/components/payments",
+     "src/components/role",
+     "src/components/serviceRequests",
+     "src/components/table",
+     "src/components/table/tableCells",
+     "src/components/user",
+     "src/config",
+     "src/pages",
+     "src/router",
+     "src/styles",
+     "src/testData/utils",
+     "src/utils"
+    ],
+    "test_directories": [],
+    "detected_entrypoints": [
+     "src/index.js"
+    ],
+    "detected_frameworks": [
+     "Next.js",
+     "React"
+    ],
+    "validation_readiness": "ready",
+    "blocking_issues": [],
+    "warnings": [],
+    "baseline_lint_configuration_failures": [],
+    "baseline_validation_failures": [],
+    "node_runtime_version": null,
+    "package_manager_versions": {}
+   },
+   "layout_evidence": {
+    "source_directories": [
+     ".husky",
+     "public",
+     "src",
+     "src/Icons",
+     "src/apiUtils",
+     "src/components",
+     "src/components/Hoc",
+     "src/components/Hoc/chatBox",
+     "src/components/activites",
+     "src/components/adUnits",
+     "src/components/adUnits/placement",
+     "src/components/adUnits/pricingRule",
+     "src/components/analytics",
+     "src/components/apps",
+     "src/components/employee",
+     "src/components/home",
+     "src/components/i18n",
+     "src/components/i18n/translations/en",
+     "src/components/invoice",
+     "src/components/optimization",
+     "src/components/payments",
+     "src/components/role",
+     "src/components/serviceRequests",
+     "src/components/table",
+     "src/components/table/tableCells",
+     "src/components/user",
+     "src/config",
+     "src/pages",
+     "src/router",
+     "src/styles",
+     "src/testData/utils",
+     "src/utils"
+    ],
+    "test_directories": [],
+    "remapped_areas": [],
+    "unresolved_areas": [],
+    "ambiguous_areas": []
+   },
+   "failure_classification": "implementation_missing",
+   "retry_strategy": {
+    "failure_classification": "implementation_missing",
+    "root_cause": "At the current repository checkout: src/components/table/tableCells/DeactivateAdUnitCell.js was added but no production file refers to it, so the running application cannot reach it. Edit src/components/adUnits/Batches.js, which is where this repository registers modules of this kind: it already reaches the neighbouring src/components/table/tableCells/ActionCell.js. Add the same kind of reference for src/components/table/tableCells/DeactivateAdUnitCell.js there, using an `edits` entry so the rest of that file is untouched. Do not add the reference to src/components/table/tableCells/ActionCell.js itself, which would make src/components/table/tableCells/DeactivateAdUnitCell.js reachable only through an unrelated module.",
+    "required_strategy_change": "Inspect the repository's established source layout and implement the missing production behavior before changing tests.",
+    "files_or_areas_to_inspect": [
+     "src/apiUtils",
+     "src/components/table/tableCells",
+     "src/components/table",
+     "src/pages",
+     "src/utils"
+    ],
+    "previous_approach_to_avoid": "Attempt 0: Repeating test-only edits without production implementation.",
+    "validation_to_rerun": [
+     "repository-native test command",
+     "lint",
+     "typecheck",
+     "build"
+    ],
+    "wiring_repair": {
+     "target_path": "src/components/adUnits/Batches.js",
+     "example_path": "src/components/table/tableCells/ActionCell.js",
+     "symbol": "DeactivateAdUnitCell",
+     "added_path": "src/components/table/tableCells/DeactivateAdUnitCell.js",
+     "problem": "never_referenced"
+    }
+   },
+   "production_files_changed": [
+    "src/apiUtils/adUnits.apiUtils.js",
+    "src/components/table/tableCells/DeactivateAdUnitCell.js"
+   ],
+   "test_files_changed": [
+    "src/components/table/tableCells/DeactivateAdUnitCell.test.js"
+   ],
+   "configuration_files_changed": [],
+   "requirements_implemented": [
+    "REQ-2",
+    "NFR-1",
+    "NFR-2"
+   ],
+   "requirements_not_implemented": [],
+   "meaningful_change": true,
+   "meaningful_change_reason": "new_or_material_production_source_implementation",
+   "production_diff_fingerprint": "beb27c696843f4bf3e82be588714c8b01d2974ca6ccb1b7b0923a3341f4444b3",
+   "previous_attempt_fingerprint": null,
+   "test_diff_fingerprint": "2adae4495ecf339710c3917e211bcc45b3c5480a5bf8f19afbfc449f95fdef6b",
+   "previous_test_fingerprint": null
+  }
+ },
+ {
+  "artifact_id": "012_integration_review.attempt-0.json",
+  "artifact_type": "integration_review",
+  "schema_version": "1.0",
+  "producer": "integration_reviewer",
+  "timestamp": "2026-08-24T23:12:24.296377Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "009_integration_contract.json",
+    "011_child_workflow_result.admanager-server.attempt-5.json",
+    "011_child_workflow_result.ab-console-admin.attempt-5.json"
+   ],
+   "contract_version": "1.0.0",
+   "contract_validator": "OpenAPIContractCodeGenerator",
+   "assessment_coverage": {
+    "contract_conformance": "checked",
+    "cross_repository_behaviour": "checked",
+    "security": "not_checked",
+    "deployment": "not_checked"
+   },
+   "seam_review_model": "gpt-5.6-terra",
+   "seam_review_response_id": "resp_095cf6717936ae0a016a8ccfd2eacc87d1b655e875e5c8c80b",
+   "seam_reviewed_repository_ids": [
+    "admanager-server",
+    "ab-console-admin"
+   ],
+   "seam_review_truncated_repository_ids": [],
+   "prompt_template": "integration_reviewer/v1.jinja2",
+   "integration_review_attempt": 0
+  },
+  "validation_status": "valid",
+  "payload": {
+   "feature_id": "adunit-deactivate-live-086",
+   "contract_artifact_id": "009_integration_contract.json",
+   "review_status": "approved",
+   "repository_results": [
+    {
+     "repository_id": "admanager-server",
+     "child_workflow_id": "adunit-deactivate-live-086:admanager-server",
+     "status": "approved",
+     "child_result_artifact_id": "011_child_workflow_result.admanager-server.attempt-5.json"
+    },
+    {
+     "repository_id": "ab-console-admin",
+     "child_workflow_id": "adunit-deactivate-live-086:ab-console-admin",
+     "status": "approved",
+     "child_result_artifact_id": "011_child_workflow_result.ab-console-admin.attempt-5.json"
+    }
+   ],
+   "contract_checks": [
+    "Contract-conformance checks were run by OpenAPIContractCodeGenerator against contract version 1.0.0.",
+    "The review status is derived only from the severity of the findings those checks produced.",
+    "The changed source of 2 repositories was read and compared."
+   ],
+   "cross_repository_findings": [],
+   "compatibility_assessment": "OpenAPIContractCodeGenerator reported no blocking contract-conformance finding. The changed source of 2 repositories was reviewed together. The frontend and server changes fit together: the frontend issues PATCH /inventoryunit/status (under the existing API base path) with the required adUnitIds array and status: \"INACTIVE\"; the server registers PATCH /status under the inventoryunit router, validates those fields including INACTIVE, updates the supplied IDs, and returns the contracted 200 response containing message. Authentication is unchanged on both sides through existing infrastructure.",
+   "security_assessment": "NOT PERFORMED. This gate inspects no repository source and makes no security claim about the coordinated change. Each repository's own 007_review.json carries the security assessment for its diff.",
+   "deployment_assessment": "NOT PERFORMED. merge_order below is the approved repository execution plan's order filtered to the repositories that are ready; no deployment, migration, or rollback verification was carried out against it.",
+   "merge_order": [
+    "admanager-server-status-update",
+    "ab-console-admin-row-deactivation"
+   ],
+   "required_fixes": []
+  }
+ },
+ {
+  "artifact_id": "014_feature_completion.json",
+  "artifact_type": "feature_completion",
+  "schema_version": "1.0",
+  "producer": "feature_workflow",
+  "timestamp": "2026-08-24T23:12:38.427882Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "009_integration_contract.json",
+    "010_repository_execution_plan.json",
+    "012_integration_review.attempt-0.json",
+    "008_pull_request.admanager-server.json",
+    "008_pull_request.ab-console-admin.json"
+   ],
+   "executor_build_revision": "fc041d804cd5f6c34205eb8d42b96eb0f137ae99",
+   "workflow_schema_version": "1.0"
+  },
+  "validation_status": "valid",
+  "payload": {
+   "feature_id": "adunit-deactivate-live-086",
+   "parent_workflow_id": "adunit-deactivate-live-086",
+   "status": "completed",
+   "technical_prd_artifact_id": "002_technical_prd.revision-3.json",
+   "integration_contract_artifact_id": "009_integration_contract.json",
+   "repository_execution_plan_artifact_id": "010_repository_execution_plan.json",
+   "child_workflow_results": [
+    "011_child_workflow_result.admanager-server.attempt-5.json",
+    "011_child_workflow_result.ab-console-admin.attempt-5.json"
+   ],
+   "integration_review_artifact_id": "012_integration_review.attempt-0.json",
+   "pull_request_artifact_ids": [
+    "008_pull_request.admanager-server.json",
+    "008_pull_request.ab-console-admin.json"
+   ],
+   "pull_request_urls": [
+    "https://github.com/cryn3t/admanager_console-2.0/pull/16",
+    "https://github.com/cryn3t/AB-console-admin-2.0/pull/21"
+   ],
+   "merge_strategy": "backend_first",
+   "merge_order": [
+    "admanager-server-status-update",
+    "ab-console-admin-row-deactivation"
+   ],
+   "deployment_strategy": "backend_first",
+   "feature_flags": [
+    "No feature flag is required because the backend addition is backward-compatible and the frontend action is isolated to eligible rows.",
+    "If operational control is required, deploy the frontend independently after the backend without changing the API contract."
+   ],
+   "rollback_plan": [
+    "Roll back AB Console Admin first to remove the new deactivate control while retaining the backward-compatible backend endpoint behavior.",
+    "If backend rollback is necessary, verify no deployed console version can issue explicit INACTIVE requests before restoring the prior ACTIVE-only service behavior.",
+    "No data migration rollback is required because the feature updates the existing status field only."
+   ],
+   "known_limitations": [
+    "Pull requests are not merged automatically.",
+    "The integration review checked contract conformance only: it did not review security or deployment."
+   ],
+   "completed_at": "2026-08-24T23:12:38.427860Z"
+  }
+ },
+ {
+  "artifact_id": "015_repository_reconnaissance.admanager-server.json",
+  "artifact_type": "repository_reconnaissance",
+  "schema_version": "1.0",
+  "producer": "repository_recon",
+  "timestamp": "2026-08-24T22:44:00.020240Z",
+  "metadata": {
+   "source_artifact_ids": [
+    "002_technical_prd.json"
+   ],
+   "model": "gpt-5.6-terra",
+   "response_id": "resp_0a804267e4f889d5016a8cc925a6b087d1a24a77a7e92966b2",
+   "prompt_template": "recon/v1.jinja2",
+   "repository_id": "admanager-server",
+   "head_sha": "c95cdae4a1133fffc4dc7c3dc436c3baf4b1ee0f",
+   "technology_profile": {
+    "repository_id": "admanager-server",
+    "primary_language": "Python",
+    "languages": [
+     "Python",
+     "JavaScript"
+    ],
+    "package_managers": [
+     "npm",
+     "pip"
+    ],
+    "frameworks": [
+     "Express"
+    ],
+    "test_frameworks": [
+     "Jest"
+    ],
+    "linters": [
+     "ESLint"
+    ],
+    "formatters": [
+     "Prettier"
+    ],
+    "typecheckers": [],
+    "build_tools": [],
+    "detected_files": [
+     ".eslintrc.js",
+     "jest.config.js",
+     "package-lock.json",
+     "package.json"
+    ],
+    "confidence": 1.0
+   },
+   "repair_of_response_id": "resp_0b6c25238eb701da016a8cc915c2f887d19fe45c4e7e486c33",
+   "repair_reason": "reconnaissance response references paths absent from the checkout: [\"package.json\"]"
+  },
+  "validation_status": "valid",
+  "payload": {
+   "feature_id": "adunit-deactivate-live-086",
+   "repository_id": "admanager-server",
+   "repository_revision": "af3950980ca2072705cebd06d599face1546c8761829bfdc096f4b81ee4263af",
+   "summary": "admanager-server is an Express-based server repository containing JavaScript controllers, routes, services, Mongoose-style models, middleware, validation modules, and Python Google Ad Manager utility scripts. Its ad-unit functionality is split between legacy top-level controller/service/route files and nested ad-unit modules; Jest tests are limited to server/tests.",
+   "source_areas": [
+    "server/controllers",
+    "server/controllers/adunit",
+    "server/routes",
+    "server/routes/adunits",
+    "server/services",
+    "server/services/adunit",
+    "server/models",
+    "server/middlewares",
+    "server/validation",
+    "server/utils"
+   ],
+   "test_areas": [
+    "server/tests"
+   ],
+   "conventions": [
+    {
+     "convention_id": "nested-adunit-controller-route-service",
+     "kind": "controller",
+     "description": "The nested ad-unit area separates request handlers, routes, and service logic into corresponding server/controllers/adunit, server/routes/adunits, and server/services/adunit directories. The nested ad-unit controller exposes getAdUnits, insertAdunitsInDB, and activateAdunits.",
+     "evidence_paths": [
+      "server/controllers/adunit/adunit.controller.js",
+      "server/routes/adunits/adunit.route.js",
+      "server/services/adunit/adunit.service.js"
+     ],
+     "wiring_path": "server/routes/adunits/adunit.route.js"
+    },
+    {
+     "convention_id": "legacy-adunit-controller-route-service",
+     "kind": "controller",
+     "description": "The repository also has a legacy top-level ad-unit controller, route, and service grouping, with controller symbols for listing, updating, creating, removing, loading, and category updates.",
+     "evidence_paths": [
+      "server/controllers/adunit.controller.js",
+      "server/routes/adunit.route.js",
+      "server/services/adunit.service.js"
+     ],
+     "wiring_path": "server/routes/adunit.route.js"
+    },
+    {
+     "convention_id": "validation-middleware-modules",
+     "kind": "validation",
+     "description": "Resource validation is held in dedicated modules under server/validation and is supported by a validate middleware module. An ad-unit validation module exists.",
+     "evidence_paths": [
+      "server/validation/adUnit.validation.js",
+      "server/middlewares/validate.js"
+     ],
+     "wiring_path": null
+    },
+    {
+     "convention_id": "mongoose-model-data-access",
+     "kind": "data_access",
+     "description": "Persistent resources are represented by model modules under server/models, including an ad-unit model; controllers and services are organised separately from those models.",
+     "evidence_paths": [
+      "server/models/adunit.model.js",
+      "server/controllers/adunit/adunit.controller.js",
+      "server/services/adunit/adunit.service.js"
+     ],
+     "wiring_path": null
+    },
+    {
+     "convention_id": "global-authentication-middleware",
+     "kind": "auth",
+     "description": "Authentication and role-permission checks are implemented in middleware, with authenticate, isAllowed, and checkRolePermission symbols in the authentication middleware rather than in the nested ad-unit controller.",
+     "evidence_paths": [
+      "server/middlewares/authenticate.js",
+      "server/controllers/adunit/adunit.controller.js"
+     ],
+     "wiring_path": "server/config/express.js"
+    },
+    {
+     "convention_id": "jest-unit-test-location",
+     "kind": "testing",
+     "description": "Jest tests are placed under server/tests; the checked-in tests cover ESM dependency behavior and the pick utility.",
+     "evidence_paths": [
+      "server/tests/esm-dependencies.test.js",
+      "server/tests/pick.util.test.js",
+      "jest.config.js"
+     ],
+     "wiring_path": null
+    },
+    {
+     "convention_id": "eslint-configuration",
+     "kind": "formatting",
+     "description": "The repository includes an ESLint configuration file.",
+     "evidence_paths": [
+      ".eslintrc.js"
+     ],
+     "wiring_path": null
+    }
+   ],
+   "shared_utilities": [],
+   "contradicted_premises": [
+    {
+     "premise": "The existing PATCH /api/inventoryunit/status endpoint can be extended without first locating its current implementation and contract.",
+     "contradicted_by": "The supplied checkout evidence contains nested and legacy ad-unit route/controller files but does not identify a route, controller symbol, service symbol, or validation symbol for /api/inventoryunit/status. The nested controller exposes activateAdunits, but the evidence does not establish its HTTP method, path, payload, response, or whether it is the stated endpoint.",
+     "evidence_paths": [
+      "server/routes/adunits/adunit.route.js",
+      "server/controllers/adunit/adunit.controller.js",
+      "server/routes/adunit.route.js",
+      "server/controllers/adunit.controller.js"
+     ],
+     "question": "Which checked-in route and handler currently implement PATCH /api/inventoryunit/status, and what exact request payload and response contract do they use?"
+    },
+    {
+     "premise": "ACTIVE and INACTIVE are existing repository-defined ad-unit status constants or an established status vocabulary.",
+     "contradicted_by": "The evidence identifies server/utils/const.js and server/models/adunit.model.js but provides no symbols or extracted content establishing ACTIVE or INACTIVE constants, an ad-unit status enum, or the current stored status representation.",
+     "evidence_paths": [
+      "server/utils/const.js",
+      "server/models/adunit.model.js",
+      "server/validation/adUnit.validation.js"
+     ],
+     "question": "Where are the ad-unit ACTIVE and INACTIVE values defined, and are they constants, schema enum values, or persisted literals?"
+    },
+    {
+     "premise": "This repository contains the console React ad-units list, its API client, selection mechanism, refetch mechanism, and React testing setup.",
+     "contradicted_by": "The checkout inventory contains only an Express server structure and server-side Jest tests. It contains no frontend, client, console component, React source, or React test directory/file in the supplied evidence.",
+     "evidence_paths": [
+      "server/controllers",
+      "server/routes",
+      "server/tests",
+      "jest.config.js"
+     ],
+     "question": "Which repository and paths contain the console ad-units list, its API client, and its React tests?"
+    },
+    {
+     "premise": "Backend tests in the existing suite already provide an endpoint-test pattern for the status route.",
+     "contradicted_by": "The only listed test files are server/tests/esm-dependencies.test.js and server/tests/pick.util.test.js; neither is identified as an HTTP, controller, route, ad-unit, or status-endpoint test.",
+     "evidence_paths": [
+      "server/tests/esm-dependencies.test.js",
+      "server/tests/pick.util.test.js"
+     ],
+     "question": "Is there an unlisted backend integration-test setup for HTTP routes, or must status-endpoint test coverage establish a new pattern in this repository?"
+    }
+   ]
+  }
+ }
+]

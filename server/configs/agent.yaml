@@ -1,0 +1,64 @@
+agents:
+  product_manager:
+    model_role: reasoning
+    temperature: 0.2
+    timeout_seconds: 120
+    max_retries: 3
+  planner:
+    model_role: reasoning
+    temperature: 0.2
+    # Deliberately below the reasoning role's own level. This is the longest single call the
+    # platform makes: one response carrying the architecture, the integration contract and
+    # the execution plan, holding roughly two dozen cross-references consistent across every
+    # requirement and repository. At `max` on AB-Feature-168 it ran twenty to forty-five
+    # minutes per attempt, and reasoning cost rises far faster than the quality of a
+    # structural decomposition does. The role still sets the model; this sets how hard it is
+    # asked to think, and the product manager -- the same role, a much smaller output -- is
+    # deliberately left where it was.
+    reasoning_effort: high
+    timeout_seconds: 120
+    max_retries: 3
+  recon:
+    # Reads each checkout once and reports what it actually contains, including the premises
+    # the code contradicts. It shared the planner's policy until the planner was eased off
+    # `max`, at which point recon quietly followed it down -- two different jobs moved by one
+    # decision, which is the thing per-agent policy exists to prevent.
+    #
+    # Deliberately left on the reasoning role's own level. Recon is what everything after it
+    # is grounded in: a plan built on a convention the repository does not have becomes a
+    # workstream no attempt can finish, so this is the wrong place to save effort. It declares
+    # no level of its own, so the role decides.
+    model_role: reasoning
+    temperature: 0.2
+    timeout_seconds: 120
+    max_retries: 3
+  engineer:
+    # The initial repository implementation, and every review remediation the router sends
+    # back here. The role decides the model, and the feature's own platform decides which
+    # provider's configuration that role is read from.
+    model_role: coding
+    temperature: 0.0
+    # Long enough for a coding model asked to think hard. At 300 this was not a slow
+    # attempt, it was a guaranteed loss: a high-effort coding call exceeded the deadline,
+    # the SDK retried three times, each retry exceeded it too, and the operation failed after
+    # exactly 1200 seconds having produced nothing. The journal then replayed that twice more,
+    # so one workstream spent an hour timing out. A deadline shorter than the work converts
+    # "slow" into "impossible" and hides it as a retryable fault.
+    #
+    # This bounds one call; the workstream's own attempt budget still bounds the loop, and a
+    # model that answers quickly is unaffected -- the timeout is a ceiling, not a wait.
+    timeout_seconds: 1800
+    max_retries: 3
+  reviewer:
+    # An independent model judging the implementation. It never writes code, whatever it is
+    # configured with, and it is the only thing that may mark a finding resolved.
+    model_role: review
+    temperature: 0.1
+    timeout_seconds: 180
+    max_retries: 3
+  github:
+    # Publishing policy, not a model boundary. It declares no `model_role` because it makes
+    # no model call at all -- the timeout and retry budget below bound the GitHub API.
+    temperature: 0.0
+    timeout_seconds: 120
+    max_retries: 2

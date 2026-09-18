@@ -1,0 +1,365 @@
+{
+  "artifact_id": "018_design_snapshot.json",
+  "artifact_type": "design_snapshot",
+  "metadata": {
+    "resolution_mode": "live"
+  },
+  "payload": {
+    "bounds": {
+      "characters_per_node": 8000,
+      "characters_total": 80000,
+      "depth": 8,
+      "nodes": 24
+    },
+    "characters_selected": 7270,
+    "design_nodes_absent": [],
+    "design_nodes_omitted": [
+      {
+        "characters": 8994,
+        "file_key": "VGULlnz44R0Ooe4FZKDxlhh4",
+        "label": "the clock",
+        "node_id": "10:11",
+        "reason": "over_per_node_character_bound"
+      }
+    ],
+    "design_nodes_unreachable": [],
+    "feature_id": "feature-design-snapshot.omissions",
+    "files": [
+      {
+        "file_key": "VGULlnz44R0Ooe4FZKDxlhh4",
+        "file_name": "Untitled",
+        "file_version": "2315052197036992991"
+      }
+    ],
+    "nodes": [
+      {
+        "applies_to": [],
+        "characters": 7270,
+        "content": {
+          "children": [
+            {
+              "children": [
+                {
+                  "constraints": {
+                    "horizontal": "CENTER",
+                    "vertical": "TOP"
+                  },
+                  "corner_radius": 40.0,
+                  "fills": [
+                    {
+                      "hex": "#000000",
+                      "type": "SOLID"
+                    }
+                  ],
+                  "name": "Rectangle",
+                  "path": "fclock/Group/Rectangle",
+                  "size": {
+                    "height": 318.0,
+                    "width": 937.0
+                  },
+                  "type": "RECTANGLE"
+                },
+                {
+                  "children": [
+                    {
+                      "constraints": {
+                        "horizontal": "CENTER",
+                        "vertical": "TOP"
+                      },
+                      "fills": [
+                        {
+                          "hex": "#ffffff",
+                          "type": "SOLID"
+                        }
+                      ],
+                      "name": "$time",
+                      "path": "fclock/Group/Time/$time",
+                      "size": {
+                        "height": 166.0,
+                        "width": 444.0
+                      },
+                      "text": "10:10",
+                      "type": "TEXT",
+                      "typography": {
+                        "align": "CENTER",
+                        "family": "Roboto",
+                        "letter_spacing": 0.0,
+                        "line_height": 168.75,
+                        "size": 144.0,
+                        "style": "Bold",
+                        "weight": 700
+                      }
+                    },
+                    {
+                      "constraints": {
+                        "horizontal": "CENTER",
+                        "vertical": "TOP"
+                      },
+                      "fills": [
+                        {
+                          "hex": "#ffffff",
+                          "type": "SOLID"
+                        }
+                      ],
+                      "name": "$seconds",
+                      "path": "fclock/Group/Time/$seconds",
+                      "size": {
+                        "height": 99.5,
+                        "width": 118.8
+                      },
+                      "text": ":10",
+                      "type": "TEXT",
+                      "typography": {
+                        "align": "CENTER",
+                        "family": "Roboto",
+                        "letter_spacing": 0.0,
+                        "line_height": 56.25,
+                        "size": 48.0,
+                        "style": "Bold",
+                        "weight": 700
+                      }
+                    },
+                    {
+                      "constraints": {
+                        "horizontal": "CENTER",
+                        "vertical": "TOP"
+                      },
+                      "fills": [
+                        {
+                          "hex": "#ffffff",
+                          "type": "SOLID"
+                        }
+                      ],
+                      "name": "$ampm",
+                      "path": "fclock/Group/Time/$ampm",
+                      "size": {
+                        "height": 75.1,
+                        "width": 96.1
+                      },
+                      "text": "PM",
+                      "type": "TEXT",
+                      "typography": {
+                        "align": "CENTER",
+                        "family": "Roboto",
+                        "letter_spacing": 0.0,
+                        "line_height": 42.1875,
+                        "size": 36.0,
+                        "style": "Bold",
+                        "weight": 700
+                      }
+                    }
+                  ],
+                  "constraints": {
+                    "horizontal": "LEFT",
+                    "vertical": "TOP"
+                  },
+                  "corner_radii": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "name": "Time",
+                  "path": "fclock/Group/Time",
+                  "size": {
+                    "height": 168.1,
+                    "width": 525.8
+                  },
+                  "type": "GROUP"
+                }
+              ],
+              "constraints": {
+                "horizontal": "LEFT",
+                "vertical": "TOP"
+              },
+              "corner_radius": 40.0,
+              "name": "Group",
+              "path": "fclock/Group",
+              "size": {
+                "height": 318.0,
+                "width": 937.0
+              },
+              "type": "GROUP"
+            },
+            {
+              "children": [
+                {
+                  "constraints": {
+                    "horizontal": "SCALE",
+                    "vertical": "SCALE"
+                  },
+                  "corner_radii": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "fills": [
+                    {
+                      "hex": "#1abcfe",
+                      "type": "SOLID"
+                    }
+                  ],
+                  "name": "Rectangle 54",
+                  "path": "fclock/Figma \"F\" 10×15/Rectangle 54",
+                  "size": {
+                    "height": 11.7,
+                    "width": 11.7
+                  },
+                  "type": "VECTOR"
+                },
+                {
+                  "constraints": {
+                    "horizontal": "SCALE",
+                    "vertical": "SCALE"
+                  },
+                  "corner_radii": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "fills": [
+                    {
+                      "hex": "#0acf83",
+                      "type": "SOLID"
+                    }
+                  ],
+                  "name": "Rectangle 55",
+                  "path": "fclock/Figma \"F\" 10×15/Rectangle 55",
+                  "size": {
+                    "height": 11.7,
+                    "width": 11.7
+                  },
+                  "type": "VECTOR"
+                },
+                {
+                  "constraints": {
+                    "horizontal": "SCALE",
+                    "vertical": "SCALE"
+                  },
+                  "corner_radii": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "fills": [
+                    {
+                      "hex": "#ff7262",
+                      "type": "SOLID"
+                    }
+                  ],
+                  "name": "Rectangle 55",
+                  "path": "fclock/Figma \"F\" 10×15/Rectangle 55",
+                  "size": {
+                    "height": 11.7,
+                    "width": 11.7
+                  },
+                  "type": "VECTOR"
+                },
+                {
+                  "constraints": {
+                    "horizontal": "SCALE",
+                    "vertical": "SCALE"
+                  },
+                  "corner_radii": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "fills": [
+                    {
+                      "hex": "#f24e1e",
+                      "type": "SOLID"
+                    }
+                  ],
+                  "name": "Rectangle 55",
+                  "path": "fclock/Figma \"F\" 10×15/Rectangle 55",
+                  "size": {
+                    "height": 11.7,
+                    "width": 11.7
+                  },
+                  "type": "VECTOR"
+                },
+                {
+                  "constraints": {
+                    "horizontal": "SCALE",
+                    "vertical": "SCALE"
+                  },
+                  "corner_radii": [
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0
+                  ],
+                  "fills": [
+                    {
+                      "hex": "#a259ff",
+                      "type": "SOLID"
+                    }
+                  ],
+                  "name": "Rectangle 55",
+                  "path": "fclock/Figma \"F\" 10×15/Rectangle 55",
+                  "size": {
+                    "height": 11.7,
+                    "width": 11.7
+                  },
+                  "type": "VECTOR"
+                }
+              ],
+              "component": {
+                "name": "Figma \"F\" 10×15"
+              },
+              "constraints": {
+                "horizontal": "LEFT",
+                "vertical": "TOP"
+              },
+              "name": "Figma \"F\" 10×15",
+              "path": "fclock/Figma \"F\" 10×15",
+              "size": {
+                "height": 35.0,
+                "width": 23.3
+              },
+              "type": "INSTANCE"
+            }
+          ],
+          "component": {
+            "name": "fclock"
+          },
+          "constraints": {
+            "horizontal": "CENTER",
+            "vertical": "TOP"
+          },
+          "fills": [
+            {
+              "hex": "#ffffff",
+              "type": "SOLID"
+            }
+          ],
+          "name": "fclock",
+          "path": "fclock",
+          "size": {
+            "height": 431.0,
+            "width": 1055.0
+          },
+          "type": "COMPONENT"
+        },
+        "depth_rendered": 3,
+        "file_key": "VGULlnz44R0Ooe4FZKDxlhh4",
+        "label": "the clock",
+        "node_id": "12:53",
+        "nodes_rendered": 13,
+        "source_url": "https://www.figma.com/design/VGULlnz44R0Ooe4FZKDxlhh4/Untitled?node-id=10-11,12-53"
+      }
+    ],
+    "resolved_at": "2026-09-07T18:02:28.103598Z",
+    "style_name_source": "node_styles"
+  },
+  "producer": "design_resolver",
+  "schema_version": "1.0",
+  "timestamp": "2026-09-07T18:02:28.103644Z",
+  "validation_status": "valid",
+  "workflow_id": "feature-design-snapshot.omissions"
+}

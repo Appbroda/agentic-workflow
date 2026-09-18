@@ -1,0 +1,133 @@
+{
+  "credentials_ready": true,
+  "providers": [
+    {
+      "provider": "openai",
+      "label": "OpenAI",
+      "configured": true
+    },
+    {
+      "provider": "anthropic",
+      "label": "Anthropic",
+      "configured": true
+    },
+    {
+      "provider": "github",
+      "label": "GitHub",
+      "configured": true
+    }
+  ],
+  "agent_platforms": [
+    {
+      "platform": "openai",
+      "performance_tier": "low",
+      "label": "OpenAI \u2014 Economy",
+      "configured": true,
+      "models": {
+        "reasoning": "gpt-5.6-terra",
+        "coding": "gpt-5.3-codex",
+        "review": "gpt-5.6-terra",
+        "scoped_fix": "gpt-5.3-codex"
+      },
+      "reasoning_efforts": {
+        "reasoning": "medium",
+        "coding": "high",
+        "review": "medium",
+        "scoped_fix": "medium"
+      }
+    },
+    {
+      "platform": "openai",
+      "performance_tier": "medium",
+      "label": "OpenAI \u2014 Standard",
+      "configured": true,
+      "models": {
+        "reasoning": "gpt-5.6-sol",
+        "coding": "gpt-5.6-sol",
+        "review": "gpt-5.6-terra",
+        "scoped_fix": "gpt-5.3-codex"
+      },
+      "reasoning_efforts": {
+        "reasoning": "high",
+        "coding": "high",
+        "review": "high",
+        "scoped_fix": "high"
+      }
+    },
+    {
+      "platform": "openai",
+      "performance_tier": "high",
+      "label": "OpenAI \u2014 Max",
+      "configured": true,
+      "models": {
+        "reasoning": "gpt-5.6-sol",
+        "coding": "gpt-5.6-sol",
+        "review": "gpt-5.6-terra",
+        "scoped_fix": "gpt-5.3-codex"
+      },
+      "reasoning_efforts": {
+        "reasoning": "max",
+        "coding": "max",
+        "review": "high",
+        "scoped_fix": "high"
+      }
+    },
+    {
+      "platform": "anthropic",
+      "performance_tier": "low",
+      "label": "Claude \u2014 Economy",
+      "configured": true,
+      "models": {
+        "reasoning": "claude-sonnet-5",
+        "coding": "claude-sonnet-5",
+        "review": "claude-sonnet-5",
+        "scoped_fix": "claude-haiku-4-5"
+      },
+      "reasoning_efforts": {
+        "reasoning": "medium",
+        "coding": "medium",
+        "review": "low",
+        "scoped_fix": null
+      }
+    },
+    {
+      "platform": "anthropic",
+      "performance_tier": "medium",
+      "label": "Claude \u2014 Standard",
+      "configured": true,
+      "models": {
+        "reasoning": "claude-opus-5",
+        "coding": "claude-sonnet-5",
+        "review": "claude-sonnet-5",
+        "scoped_fix": "claude-sonnet-5"
+      },
+      "reasoning_efforts": {
+        "reasoning": "high",
+        "coding": "high",
+        "review": "high",
+        "scoped_fix": "high"
+      }
+    },
+    {
+      "platform": "anthropic",
+      "performance_tier": "high",
+      "label": "Claude \u2014 Max",
+      "configured": true,
+      "models": {
+        "reasoning": "claude-opus-5",
+        "coding": "claude-opus-5",
+        "review": "claude-opus-5",
+        "scoped_fix": "claude-sonnet-5"
+      },
+      "reasoning_efforts": {
+        "reasoning": "max",
+        "coding": "xhigh",
+        "review": "high",
+        "scoped_fix": "high"
+      }
+    }
+  ],
+  "repositories_ready": true,
+  "saved_repository_count": 1,
+  "credential_storage_available": true
+}

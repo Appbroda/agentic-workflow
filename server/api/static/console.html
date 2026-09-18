@@ -1,0 +1,540 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="referrer" content="no-referrer" />
+<title>Feature console</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #16181d; --muted: #5d6470; --line: #dfe3ea;
+    --card: #f7f8fa; --field: #ffffff;
+    --working: #2f6feb; --attention: #a76100; --done: #1a7f4b; --stopped: #b3261e;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #14161a; --fg: #e9ecf1; --muted: #9aa3b0; --line: #2b2f37;
+      --card: #1b1e24; --field: #21252c;
+      --working: #7aa5ff; --attention: #e0a33a; --done: #56c98a; --stopped: #ff6b60;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  main { max-width: 900px; margin: 0 auto; padding: 28px 20px 80px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h2 { font-size: 16px; margin: 28px 0 10px; }
+  p.lede { color: var(--muted); margin: 0 0 22px; }
+  fieldset { border: 1px solid var(--line); border-radius: 10px; margin: 0 0 18px; padding: 16px; }
+  legend { padding: 0 6px; font-weight: 600; font-size: 13px; color: var(--muted); }
+  label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+  label:first-of-type { margin-top: 0; }
+  .hint { font-weight: 400; color: var(--muted); }
+  input, textarea, select {
+    width: 100%; padding: 8px 10px; font: inherit; color: var(--fg);
+    background: var(--field); border: 1px solid var(--line); border-radius: 7px;
+  }
+  textarea { min-height: 70px; resize: vertical; }
+  button {
+    font: inherit; font-weight: 600; padding: 9px 16px; border-radius: 7px;
+    border: 1px solid transparent; background: var(--working); color: #fff; cursor: pointer;
+  }
+  button.secondary { background: transparent; color: var(--fg); border-color: var(--line); }
+  button:disabled { opacity: .55; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 0 12px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+          padding: 14px 16px; margin: 0 0 12px; }
+  .repo, .story, .req { position: relative; }
+  .drop { position: absolute; top: 10px; right: 10px; padding: 4px 9px; font-size: 12px; }
+  .tone { font-weight: 700; }
+  .tone.working { color: var(--working); } .tone.attention { color: var(--attention); }
+  .tone.done { color: var(--done); } .tone.stopped { color: var(--stopped); }
+  .pill { display: inline-block; font-size: 11px; font-weight: 700; letter-spacing: .04em;
+          text-transform: uppercase; padding: 2px 8px; border-radius: 99px;
+          border: 1px solid currentColor; }
+  ul { margin: 8px 0 0; padding-left: 20px; } li { margin: 3px 0; }
+  a { color: var(--working); }
+  code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 13px; }
+  .banner { border-radius: 9px; padding: 11px 14px; margin: 0 0 16px; font-weight: 600;
+            border: 1px solid currentColor; }
+  .banner.stopped { color: var(--stopped); } .banner.done { color: var(--done); }
+  .muted { color: var(--muted); }
+  .hidden { display: none; }
+  .stack > * + * { margin-top: 14px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Feature console</h1>
+  <p class="lede">Describe a feature once, and let it be built and reviewed across every
+    repository it touches. Nothing is ever merged for you — the result is draft pull requests
+    for a person to read.</p>
+
+  <div id="banner" class="banner stopped hidden" role="alert"></div>
+
+  <fieldset>
+    <legend>Access</legend>
+    <label for="platformKey">Platform API key</label>
+    <input id="platformKey" type="password" autocomplete="off" spellcheck="false"
+           placeholder="Ask your engineering team for this" />
+    <div id="liveCredentials" class="hidden">
+      <label for="openaiKey">OpenAI API key <span class="hint">— live runs only</span></label>
+      <input id="openaiKey" type="password" autocomplete="off" spellcheck="false" />
+      <label for="githubToken">GitHub token <span class="hint">— live runs only</span></label>
+      <input id="githubToken" type="password" autocomplete="off" spellcheck="false" />
+    </div>
+    <p class="muted" style="margin:12px 0 0;font-size:13px;">These stay in this browser tab
+      only. They are never saved to disk and are gone when you close the tab.</p>
+  </fieldset>
+
+  <div id="startView">
+    <fieldset>
+      <legend>What are we building?</legend>
+      <label for="title">Title</label>
+      <input id="title" placeholder="Show server status on the dashboard" />
+
+      <label for="problem">Problem statement</label>
+      <textarea id="problem" placeholder="What is wrong today, and for whom?"></textarea>
+
+      <label for="goals">Goals <span class="hint">— one per line</span></label>
+      <textarea id="goals" placeholder="Operators can see whether the server is healthy"></textarea>
+
+      <label for="constraints">Constraints <span class="hint">— one per line, optional</span></label>
+      <textarea id="constraints"></textarea>
+
+      <label for="outOfScope">Out of scope <span class="hint">— one per line, optional</span></label>
+      <textarea id="outOfScope"></textarea>
+
+      <label for="stakeholders">Stakeholders <span class="hint">— one per line, optional</span></label>
+      <textarea id="stakeholders"></textarea>
+    </fieldset>
+
+    <fieldset>
+      <legend>User stories</legend>
+      <div id="stories" class="stack"></div>
+      <div class="row" style="margin-top:12px;">
+        <button type="button" class="secondary" id="addStory">Add another story</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Requirements</legend>
+      <div id="requirements" class="stack"></div>
+      <div class="row" style="margin-top:12px;">
+        <button type="button" class="secondary" id="addRequirement">Add another requirement</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Repositories</legend>
+      <div id="repositories" class="stack"></div>
+      <div class="row" style="margin-top:12px;">
+        <button type="button" class="secondary" id="addRepository">Add another repository</button>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>How should this run?</legend>
+      <label for="mode">Mode</label>
+      <select id="mode">
+        <option value="mock">Rehearsal — no code is written, nothing reaches GitHub</option>
+        <option value="live">Live — writes code and opens draft pull requests</option>
+      </select>
+      <p class="muted" style="margin:10px 0 0;font-size:13px;">Start with a rehearsal to check
+        the plan reads correctly. Live runs need the two extra keys above.</p>
+    </fieldset>
+
+    <div class="row">
+      <button type="button" id="submit">Start the feature</button>
+      <button type="button" class="secondary" id="loadRecent">Show recent features</button>
+    </div>
+
+    <div id="recent"></div>
+  </div>
+
+  <div id="statusView" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <div>
+          <div id="statusHeadline" class="tone working" style="font-size:19px;"></div>
+          <div id="statusDetail" class="muted"></div>
+        </div>
+        <span id="statusPill" class="pill tone working"></span>
+      </div>
+      <div id="statusNext" style="margin-top:12px;"></div>
+      <div class="row" style="margin-top:14px;">
+        <button type="button" class="secondary" id="refresh">Refresh now</button>
+        <button type="button" class="secondary" id="resume">Resume</button>
+        <button type="button" class="secondary" id="cancel">Cancel feature</button>
+        <button type="button" class="secondary" id="back">Start another feature</button>
+      </div>
+      <p class="muted" style="margin:12px 0 0;font-size:13px;">
+        Feature <code id="featureIdLabel"></code><span id="autoRefresh"></span></p>
+    </div>
+
+    <h2>Pull requests</h2>
+    <div id="pullRequests"></div>
+
+    <h2>Repositories</h2>
+    <div id="workstreams"></div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+// Credentials live here and nowhere else. Never localStorage, never a cookie, never a query
+// string -- a product manager pasting a GitHub token into a browser should not have it
+// outlive the tab.
+const secrets = { platform: "", openai: "", github: "" };
+let vocabulary = { feature: {}, workstream: {} };
+let featureId = "";
+let pollTimer = null;
+
+const $ = (id) => document.getElementById(id);
+const lines = (value) => value.split("\n").map((item) => item.trim()).filter(Boolean);
+const slug = (value, fallback) => {
+  const base = value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  return (base || fallback).slice(0, 40);
+};
+
+function showBanner(message, tone) {
+  const banner = $("banner");
+  banner.textContent = message;
+  banner.className = "banner " + (tone || "stopped");
+  banner.scrollIntoView({ block: "nearest" });
+}
+function clearBanner() { $("banner").className = "banner stopped hidden"; }
+
+function explain(kind, status) {
+  return vocabulary[kind][status] || {
+    headline: status, detail: "", next_step: "", tone: "working",
+  };
+}
+
+// --- repeatable form sections ---------------------------------------------------------
+
+function addStory() {
+  const node = document.createElement("div");
+  node.className = "card story";
+  node.innerHTML = `
+    <button type="button" class="secondary drop">Remove</button>
+    <div class="grid">
+      <div><label>Who is it for?</label><input class="persona" placeholder="Operator" /></div>
+      <div><label>What do they need?</label><input class="need" placeholder="to see server status" /></div>
+    </div>
+    <label>So that…</label><input class="benefit" placeholder="they notice an outage quickly" />
+    <label>How will we know it works? <span class="hint">— one per line</span></label>
+    <textarea class="criteria" placeholder="The dashboard shows a status tile"></textarea>`;
+  node.querySelector(".drop").onclick = () => node.remove();
+  $("stories").append(node);
+}
+
+function addRequirement() {
+  const node = document.createElement("div");
+  node.className = "card req";
+  node.innerHTML = `
+    <button type="button" class="secondary drop">Remove</button>
+    <label>Requirement</label>
+    <input class="description" placeholder="Expose a health endpoint the dashboard can read" />
+    <label>Priority</label>
+    <select class="priority">
+      <option value="must">Must have</option>
+      <option value="should">Should have</option>
+      <option value="could">Could have</option>
+      <option value="wont">Will not have</option>
+    </select>
+    <label>How will we know it works? <span class="hint">— one per line</span></label>
+    <textarea class="criteria" placeholder="GET /status returns the current state"></textarea>`;
+  node.querySelector(".drop").onclick = () => node.remove();
+  $("requirements").append(node);
+}
+
+function addRepository() {
+  const node = document.createElement("div");
+  node.className = "card repo";
+  node.innerHTML = `
+    <button type="button" class="secondary drop">Remove</button>
+    <div class="grid">
+      <div><label>Name</label><input class="name" placeholder="Backend" /></div>
+      <div><label>Role</label><select class="role">
+        <option value="backend">Backend</option><option value="frontend">Frontend</option>
+        <option value="service">Service</option><option value="shared">Shared</option>
+        <option value="infrastructure">Infrastructure</option><option value="other">Other</option>
+      </select></div>
+    </div>
+    <label>Repository URL</label>
+    <input class="url" placeholder="https://github.com/your-org/backend.git" />
+    <div class="grid">
+      <div><label>Default branch</label><input class="branch" value="main" /></div>
+      <div><label>Required?</label><select class="required">
+        <option value="yes">Yes — the feature is not done without it</option>
+        <option value="no">No — nice to have</option>
+      </select></div>
+    </div>`;
+  node.querySelector(".drop").onclick = () => node.remove();
+  $("repositories").append(node);
+}
+
+// --- request building -----------------------------------------------------------------
+
+function collectPayload() {
+  const stories = [...document.querySelectorAll(".story")].map((node, index) => ({
+    story_id: "story-" + (index + 1),
+    persona: node.querySelector(".persona").value.trim(),
+    need: node.querySelector(".need").value.trim(),
+    benefit: node.querySelector(".benefit").value.trim(),
+    acceptance_criteria: lines(node.querySelector(".criteria").value),
+  }));
+  const requirements = [...document.querySelectorAll(".req")].map((node, index) => ({
+    requirement_id: "requirement-" + (index + 1),
+    description: node.querySelector(".description").value.trim(),
+    priority: node.querySelector(".priority").value,
+    acceptance_criteria: lines(node.querySelector(".criteria").value),
+    dependencies: [],
+  }));
+  const repositories = [...document.querySelectorAll(".repo")].map((node, index) => ({
+    repository_id: slug(node.querySelector(".name").value, "repository-" + (index + 1)),
+    name: node.querySelector(".name").value.trim(),
+    role: node.querySelector(".role").value,
+    repository_url: node.querySelector(".url").value.trim(),
+    default_branch: node.querySelector(".branch").value.trim() || "main",
+    required: node.querySelector(".required").value === "yes",
+  }));
+  return {
+    prd: {
+      title: $("title").value.trim(),
+      problem_statement: $("problem").value.trim(),
+      goals: lines($("goals").value),
+      user_stories: stories,
+      requirements: requirements,
+      constraints: lines($("constraints").value),
+      out_of_scope: lines($("outOfScope").value),
+      stakeholders: lines($("stakeholders").value),
+    },
+    repositories: repositories,
+    execution_mode: $("mode").value,
+  };
+}
+
+// Checked here so an obvious omission reads as a sentence instead of a schema error.
+function firstProblem(payload) {
+  const prd = payload.prd;
+  if (!secrets.platform) return "Enter the platform API key first.";
+  if (!prd.title) return "Give the feature a title.";
+  if (!prd.problem_statement) return "Describe the problem this solves.";
+  if (!prd.goals.length) return "Add at least one goal.";
+  if (!prd.user_stories.length) return "Add at least one user story.";
+  for (const story of prd.user_stories) {
+    if (!story.persona || !story.need || !story.benefit) return "Every user story needs who it is for, what they need, and why.";
+    if (!story.acceptance_criteria.length) return "Every user story needs at least one way to tell it works.";
+  }
+  if (!prd.requirements.length) return "Add at least one requirement.";
+  for (const requirement of prd.requirements) {
+    if (!requirement.description) return "Every requirement needs a description.";
+    if (!requirement.acceptance_criteria.length) return "Every requirement needs at least one way to tell it works.";
+  }
+  if (!payload.repositories.length) return "Add at least one repository.";
+  for (const repository of payload.repositories) {
+    if (!repository.name) return "Every repository needs a name.";
+    if (!repository.repository_url) return "Every repository needs a URL.";
+  }
+  if (!payload.repositories.some((item) => item.required)) return "At least one repository has to be required.";
+  if (payload.execution_mode === "live" && (!secrets.openai || !secrets.github)) {
+    return "A live run needs both the OpenAI key and the GitHub token.";
+  }
+  return "";
+}
+
+function headers(includeProviders) {
+  const value = { "Content-Type": "application/json", "Authorization": "Bearer " + secrets.platform };
+  if (includeProviders && secrets.openai) value["X-OpenAI-Api-Key"] = secrets.openai;
+  if (includeProviders && secrets.github) value["X-GitHub-Token"] = secrets.github;
+  return value;
+}
+
+async function call(path, options) {
+  const response = await fetch(path, options);
+  if (response.status === 401) throw new Error("The platform API key was not accepted.");
+  if (response.status === 404) throw new Error("No feature with that ID.");
+  if (response.status === 503) throw new Error("The platform is not ready to accept work right now. Try again shortly.");
+  if (!response.ok) {
+    let detail = "";
+    try { detail = (await response.json()).detail; } catch { detail = ""; }
+    throw new Error(typeof detail === "string" && detail ? detail : "Request failed (" + response.status + ").");
+  }
+  return response.json();
+}
+
+// --- views -----------------------------------------------------------------------------
+
+function renderStatus(feature, workstreams, pullRequests) {
+  const state = explain("feature", feature.status);
+  $("statusHeadline").textContent = state.headline;
+  $("statusHeadline").className = "tone " + state.tone;
+  $("statusDetail").textContent = state.detail;
+  $("statusPill").textContent = state.tone === "working" ? "in progress" : state.tone;
+  $("statusPill").className = "pill tone " + state.tone;
+  $("statusNext").textContent = state.next_step;
+  $("featureIdLabel").textContent = feature.feature_id;
+  $("resume").classList.toggle("hidden", state.tone === "done");
+
+  const prs = pullRequests.pull_requests || [];
+  $("pullRequests").innerHTML = prs.length
+    ? prs.map((item) => {
+        const payload = item.payload || item;
+        return `<div class="card"><a href="${payload.url}" target="_blank" rel="noreferrer noopener">
+          ${payload.repository} — ${payload.title}</a>
+          <div class="muted" style="font-size:13px;margin-top:4px;">Draft. Nothing merges automatically.</div>
+        </div>`;
+      }).join("")
+    : `<div class="card muted">No pull requests yet.</div>`;
+
+  const items = workstreams.workstreams || [];
+  $("workstreams").innerHTML = items.map((item) => {
+    const child = explain("workstream", item.status);
+    const issues = (item.blocking_issues || []).map((issue) => `<li>${escapeHtml(issue)}</li>`).join("");
+    const missing = (item.requirements_not_implemented || [])
+      .map((requirement) => `<li>${escapeHtml(requirement)}</li>`).join("");
+    return `<div class="card">
+      <div class="row" style="justify-content:space-between;">
+        <strong>${escapeHtml(item.repository_id)}</strong>
+        <span class="tone ${child.tone}">${child.headline}</span>
+      </div>
+      <div class="muted" style="font-size:13px;margin-top:2px;">${child.detail}</div>
+      ${issues ? `<div style="margin-top:10px;"><strong>What stopped it</strong><ul>${issues}</ul></div>` : ""}
+      ${missing ? `<div style="margin-top:10px;"><strong>Not built</strong><ul>${missing}</ul></div>` : ""}
+    </div>`;
+  }).join("") || `<div class="card muted">No repositories yet.</div>`;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => (
+    { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[character]
+  ));
+}
+
+async function refresh() {
+  try {
+    const [feature, workstreams, pullRequests] = await Promise.all([
+      call("/features/" + encodeURIComponent(featureId), { headers: headers(false) }),
+      call("/features/" + encodeURIComponent(featureId) + "/workstreams", { headers: headers(false) }),
+      call("/features/" + encodeURIComponent(featureId) + "/pull-requests", { headers: headers(false) }),
+    ]);
+    clearBanner();
+    renderStatus(feature, workstreams, pullRequests);
+    const settled = ["done", "stopped"].includes(explain("feature", feature.status).tone);
+    $("autoRefresh").textContent = settled ? "" : " · refreshing every 5s";
+    if (settled && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  } catch (error) {
+    showBanner(error.message, "stopped");
+  }
+}
+
+function watch(id) {
+  featureId = id;
+  $("startView").classList.add("hidden");
+  $("statusView").classList.remove("hidden");
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(refresh, 5000);
+  refresh();
+}
+
+// --- wiring ----------------------------------------------------------------------------
+
+$("platformKey").oninput = (event) => { secrets.platform = event.target.value; };
+$("openaiKey").oninput = (event) => { secrets.openai = event.target.value; };
+$("githubToken").oninput = (event) => { secrets.github = event.target.value; };
+$("mode").onchange = (event) => {
+  $("liveCredentials").classList.toggle("hidden", event.target.value !== "live");
+};
+$("addStory").onclick = addStory;
+$("addRequirement").onclick = addRequirement;
+$("addRepository").onclick = addRepository;
+$("refresh").onclick = refresh;
+$("back").onclick = () => {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+  $("statusView").classList.add("hidden");
+  $("startView").classList.remove("hidden");
+  clearBanner();
+};
+
+$("submit").onclick = async () => {
+  const payload = collectPayload();
+  const problem = firstProblem(payload);
+  if (problem) { showBanner(problem, "stopped"); return; }
+  $("submit").disabled = true;
+  try {
+    const created = await call("/features/start", {
+      method: "POST", headers: headers(true), body: JSON.stringify(payload),
+    });
+    clearBanner();
+    watch(created.feature_id);
+  } catch (error) {
+    showBanner(error.message, "stopped");
+  } finally {
+    $("submit").disabled = false;
+  }
+};
+
+$("loadRecent").onclick = async () => {
+  if (!secrets.platform) { showBanner("Enter the platform API key first.", "stopped"); return; }
+  try {
+    const page = await call("/features?limit=20", { headers: headers(false) });
+    clearBanner();
+    const rows = page.features || [];
+    $("recent").innerHTML = rows.length
+      ? `<h2>Recent features</h2>` + rows.map((item) => {
+          const state = explain("feature", item.status);
+          return `<div class="card">
+            <div class="row" style="justify-content:space-between;">
+              <button type="button" class="secondary open" data-id="${escapeHtml(item.feature_id)}"
+                      style="max-width:70%;text-align:left;">${escapeHtml(item.title)}</button>
+              <span class="tone ${state.tone}">${state.headline}</span>
+            </div>
+            <div class="muted" style="font-size:13px;margin-top:6px;">
+              ${item.execution_mode === "mock" ? "Rehearsal" : "Live"} ·
+              started ${new Date(item.created_at).toLocaleString()}</div>
+          </div>`;
+        }).join("")
+      : `<h2>Recent features</h2><div class="card muted">Nothing started yet.</div>`;
+    for (const button of document.querySelectorAll(".open")) {
+      button.onclick = () => watch(button.dataset.id);
+    }
+  } catch (error) { showBanner(error.message, "stopped"); }
+};
+
+$("resume").onclick = async () => {
+  try {
+    await call("/features/" + encodeURIComponent(featureId) + "/resume", {
+      method: "POST", headers: headers(true), body: JSON.stringify({ answers: [] }),
+    });
+    watch(featureId);
+  } catch (error) { showBanner(error.message, "stopped"); }
+};
+
+$("cancel").onclick = async () => {
+  if (!confirm("Stop this feature? Anything already pushed to GitHub stays there.")) return;
+  try {
+    await call("/features/" + encodeURIComponent(featureId) + "/cancel", {
+      method: "POST", headers: headers(false), body: JSON.stringify({ reason: "Stopped from the console" }),
+    });
+    refresh();
+  } catch (error) { showBanner(error.message, "stopped"); }
+};
+
+(async function start() {
+  try {
+    vocabulary = await (await fetch("/console/status-vocabulary")).json();
+  } catch {
+    showBanner("Could not reach the platform. Is it running?", "stopped");
+  }
+  addStory(); addRequirement(); addRepository();
+})();
+</script>
+</body>
+</html>

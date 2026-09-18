@@ -1,0 +1,110 @@
+{
+    "feature_id": "feature-cb371e24-f25c-4839-9e4f-30af60a9feb3",
+    "artifacts": [
+        {
+            "artifact_id": "012_integration_review.attempt-0.json",
+            "artifact_type": "integration_review",
+            "workflow_id": "feature-cb371e24-f25c-4839-9e4f-30af60a9feb3",
+            "schema_version": "1.0",
+            "producer": "integration_reviewer",
+            "timestamp": "2026-09-01T10:31:44.539477Z",
+            "metadata": {
+                "source_artifact_ids": [
+                    "009_integration_contract.json",
+                    "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json",
+                    "011_child_workflow_result.admanager_console-2.0.attempt-3.json"
+                ],
+                "contract_version": "1.0.0",
+                "contract_validator": "OpenAPIContractCodeGenerator",
+                "assessment_coverage": {
+                    "contract_conformance": "checked",
+                    "cross_repository_behaviour": "checked",
+                    "security": "not_checked",
+                    "deployment": "not_checked"
+                },
+                "seam_review_model": "claude-sonnet-5",
+                "seam_review_response_id": "msg_011CecZfMmynQqB81MTr5pwS",
+                "seam_reviewed_repository_ids": [
+                    "AB-console-admin-2.0",
+                    "admanager_console-2.0"
+                ],
+                "seam_review_truncated_repository_ids": [],
+                "prompt_template": "integration_reviewer/v1.jinja2",
+                "execution": {
+                    "agent_type": "Integration reviewer",
+                    "provider": "anthropic",
+                    "model": "claude-sonnet-5",
+                    "reasoning_effort": "high",
+                    "model_role": "review",
+                    "model_variable": "ANTHROPIC_MEDIUM_REVIEW_MODEL",
+                    "routing_reason": "Independent implementation review uses the configured review role."
+                },
+                "integration_review_attempt": 0,
+                "input_signature": "0fb2b126a5ca09d2704d855d05911cbbb6a73668ceb50ca2a89e2deb31a1997d"
+            },
+            "validation_status": "valid",
+            "payload": {
+                "feature_id": "feature-cb371e24-f25c-4839-9e4f-30af60a9feb3",
+                "contract_artifact_id": "009_integration_contract.json",
+                "review_status": "changes_requested",
+                "repository_results": [
+                    {
+                        "repository_id": "AB-console-admin-2.0",
+                        "child_workflow_id": "feature-cb371e24-f25c-4839-9e4f-30af60a9feb3:AB-console-admin-2.0",
+                        "status": "approved",
+                        "child_result_artifact_id": "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json"
+                    },
+                    {
+                        "repository_id": "admanager_console-2.0",
+                        "child_workflow_id": "feature-cb371e24-f25c-4839-9e4f-30af60a9feb3:admanager_console-2.0",
+                        "status": "approved",
+                        "child_result_artifact_id": "011_child_workflow_result.admanager_console-2.0.attempt-3.json"
+                    }
+                ],
+                "contract_checks": [
+                    "Contract-conformance checks were run by OpenAPIContractCodeGenerator against contract version 1.0.0.",
+                    "The review status is derived only from the severity of the findings those checks produced.",
+                    "The changed source of 2 repositories was read and compared."
+                ],
+                "cross_repository_findings": [
+                    {
+                        "finding_id": "BULK_APPS_CLIENT_COLUMN_LIST_MISMATCH",
+                        "severity": "high",
+                        "responsible_repository_id": "AB-console-admin-2.0",
+                        "affected_repository_ids": [
+                            "AB-console-admin-2.0",
+                            "admanager_console-2.0"
+                        ],
+                        "contract_reference": "BulkCreateAppsCsvContract.accepted_columns_source / BULK_APPS_UNKNOWN_COLUMN",
+                        "description": "The console hard-codes the CSV columns it will accept before ever submitting to the server, instead of deriving them from (or keeping them in sync with) the single-app create schema as the contract mandates. The backend derives ACCEPTED_COLUMNS dynamically from `addAppSchema.appDetails`, whose fields (per the single-app createApp service code) include at least app_type, app_developer, app_title, app_url, icon, store and app_id \u2014 but never publisher_name, which is taken from the authenticated user, not the CSV. The console's static list omits app_type/app_url/icon and wrongly includes publisher_name. Because the console blocks the Upload button whenever its client-side validator reports any problem (including UNKNOWN_COLUMN), a CSV containing the columns the backend actually requires (app_type, app_url, icon) will be rejected client-side before it ever reaches the server, and a CSV that follows the console's own accepted list (including publisher_name) will be rejected by the server with BULK_APPS_UNKNOWN_COLUMN.",
+                        "evidence": "Console: `const BULK_APPS_ACCEPTED_COLUMNS = ['app_id','app_title','store','app_developer','publisher_name'];` and `const problems = validateBulkAppsCsvText(csvText); if (problems.length) { setClientProblems(problems); return; }` (blocks submit). Backend: `const appDetailsSchema = appValidation.addAppSchema.extract('appDetails'); const ACCEPTED_COLUMNS = Object.keys(appDetailsSchema.describe().keys).filter(...)` combined with service code `const { app_type, app_developer, app_title, app_url, icon, store: appStore } = appDetails;` showing appDetails (and hence ACCEPTED_COLUMNS) includes app_type/app_url/icon and excludes publisher_name.",
+                        "recommended_fix": "Remove the hard-coded BULK_APPS_ACCEPTED_COLUMNS list from the console (or fetch/derive it from the same source of truth used server-side, e.g. expose the accepted column list via an endpoint or a shared config), and drop publisher_name while adding app_type/app_url/icon (or whatever the actual single-app appDetails schema requires) so the client-side pre-validation cannot diverge from the server's authoritative BULK_APPS_UNKNOWN_COLUMN check."
+                    },
+                    {
+                        "finding_id": "BULK_APPS_DUPLICATE_IN_FILE_STATUS_CODE_MISMATCH",
+                        "severity": "low",
+                        "responsible_repository_id": "admanager_console-2.0",
+                        "affected_repository_ids": [
+                            "admanager_console-2.0"
+                        ],
+                        "contract_reference": "error_contracts.BULK_APPS_DUPLICATE_IN_FILE (status_code 409)",
+                        "description": "The contract specifies status_code 409 for BULK_APPS_DUPLICATE_IN_FILE, but the validation module throws this code with a hard-coded statusCode of 400 whenever only in-file duplicates (no row-validation errors) are detected.",
+                        "evidence": "Contract: `{ \"code\": \"BULK_APPS_DUPLICATE_IN_FILE\", \"status_code\": 409, ... }`. Backend: `const code = rowErrors.length === 0 && duplicateErrors.length > 0 ? 'BULK_APPS_DUPLICATE_IN_FILE' : 'BULK_APPS_ROW_VALIDATION_FAILED'; throw createBulkCreateAppsError(code, 400, 'One or more CSV rows failed validation', {...});` \u2014 the statusCode argument is always 400 regardless of which code is chosen.",
+                        "recommended_fix": "Pass 409 as the statusCode when the resolved code is BULK_APPS_DUPLICATE_IN_FILE (and keep 400 for BULK_APPS_ROW_VALIDATION_FAILED) so the emitted HTTP status matches the approved contract."
+                    }
+                ],
+                "compatibility_assessment": "OpenAPIContractCodeGenerator reported at least one blocking contract-conformance finding; see cross_repository_findings. The changed source of 2 repositories was reviewed together. The two workstreams implement complementary halves of the same bulkCreateApps feature and mostly agree on method, path, content type, size/row limits, and response/error envelope shapes. However, the console's client-side CSV pre-validation hard-codes an accepted-column list that was not derived from (and does not match) the backend's actual accepted-column set, which is dynamically derived from the single-app create schema. This causes the console to block valid uploads and/or let through uploads the backend will reject, undermining the 'browser-side hint only' assumption the console code documents for itself.",
+                "security_assessment": "NOT PERFORMED. This gate inspects no repository source and makes no security claim about the coordinated change. Each repository's own 007_review.json carries the security assessment for its diff.",
+                "deployment_assessment": "NOT PERFORMED. merge_order below is the approved repository execution plan's order filtered to the repositories that are ready; no deployment, migration, or rollback verification was carried out against it.",
+                "merge_order": [
+                    "ws-backend-bulk-apps",
+                    "ws-console-bulk-apps-client"
+                ],
+                "required_fixes": [
+                    "Remove the hard-coded BULK_APPS_ACCEPTED_COLUMNS list from the console (or fetch/derive it from the same source of truth used server-side, e.g. expose the accepted column list via an endpoint or a shared config), and drop publisher_name while adding app_type/app_url/icon (or whatever the actual single-app appDetails schema requires) so the client-side pre-validation cannot diverge from the server's authoritative BULK_APPS_UNKNOWN_COLUMN check.",
+                    "Pass 409 as the statusCode when the resolved code is BULK_APPS_DUPLICATE_IN_FILE (and keep 400 for BULK_APPS_ROW_VALIDATION_FAILED) so the emitted HTTP status matches the approved contract."
+                ]
+            }
+        }
+    ]
+}

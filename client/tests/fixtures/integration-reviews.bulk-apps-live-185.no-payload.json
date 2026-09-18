@@ -1,0 +1,93 @@
+{
+    "feature_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+    "artifacts": [
+        {
+            "artifact_id": "012_integration_review.attempt-0.json",
+            "artifact_type": "integration_review",
+            "workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+            "schema_version": "1.0",
+            "producer": "integration_reviewer",
+            "timestamp": "2026-09-01T09:20:59.705052Z",
+            "metadata": {
+                "source_artifact_ids": [
+                    "009_integration_contract.json",
+                    "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json",
+                    "011_child_workflow_result.admanager_console-2.0.attempt-1.json"
+                ],
+                "contract_version": "1.0.0",
+                "contract_validator": "OpenAPIContractCodeGenerator",
+                "assessment_coverage": {
+                    "contract_conformance": "checked",
+                    "cross_repository_behaviour": "checked",
+                    "security": "not_checked",
+                    "deployment": "not_checked"
+                },
+                "seam_review_model": "gpt-5.6-terra",
+                "seam_review_response_id": "resp_060e673a3276f244016a9698a90ff887d18cdd8b03b1559e23",
+                "seam_reviewed_repository_ids": [
+                    "AB-console-admin-2.0",
+                    "admanager_console-2.0"
+                ],
+                "seam_review_truncated_repository_ids": [],
+                "prompt_template": "integration_reviewer/v1.jinja2",
+                "execution": {
+                    "agent_type": "Integration reviewer",
+                    "provider": "openai",
+                    "model": "gpt-5.6-terra",
+                    "reasoning_effort": "high",
+                    "model_role": "review",
+                    "model_variable": "OPENAI_MEDIUM_REVIEW_MODEL",
+                    "routing_reason": "Independent implementation review uses the configured review role."
+                },
+                "integration_review_attempt": 0,
+                "input_signature": "6acec0acdf3563aaf17bd5e29b2f7002f94c1094af0291b559f6c99069ce4f89"
+            },
+            "validation_status": "valid",
+            "payload": {}
+        },
+        {
+            "artifact_id": "012_integration_review.attempt-1.json",
+            "artifact_type": "integration_review",
+            "workflow_id": "feature-0fe294a9-e288-4c84-b975-1f8e8b0762f0",
+            "schema_version": "1.0",
+            "producer": "integration_reviewer",
+            "timestamp": "2026-09-01T09:39:36.004150Z",
+            "metadata": {
+                "source_artifact_ids": [
+                    "009_integration_contract.json",
+                    "011_child_workflow_result.AB-console-admin-2.0.attempt-1.json",
+                    "011_child_workflow_result.admanager_console-2.0.attempt-4.json"
+                ],
+                "contract_version": "1.0.0",
+                "contract_validator": "OpenAPIContractCodeGenerator",
+                "assessment_coverage": {
+                    "contract_conformance": "checked",
+                    "cross_repository_behaviour": "checked",
+                    "security": "not_checked",
+                    "deployment": "not_checked"
+                },
+                "seam_review_model": "gpt-5.6-terra",
+                "seam_review_response_id": "resp_0d58c69cb12a55ac016a969d28584487d195e93c98e08345c9",
+                "seam_reviewed_repository_ids": [
+                    "AB-console-admin-2.0",
+                    "admanager_console-2.0"
+                ],
+                "seam_review_truncated_repository_ids": [],
+                "prompt_template": "integration_reviewer/v1.jinja2",
+                "execution": {
+                    "agent_type": "Integration reviewer",
+                    "provider": "openai",
+                    "model": "gpt-5.6-terra",
+                    "reasoning_effort": "high",
+                    "model_role": "review",
+                    "model_variable": "OPENAI_MEDIUM_REVIEW_MODEL",
+                    "routing_reason": "Independent implementation review uses the configured review role."
+                },
+                "integration_review_attempt": 1,
+                "input_signature": "406a8056f0d2d1e263bb203880793eb01feabf2d59bacfe9aac1909e2f1e6e24"
+            },
+            "validation_status": "valid",
+            "payload": {}
+        }
+    ]
+}
