@@ -441,6 +441,11 @@ class Settings(BaseSettings):
     # compete, and losing that race is what abandoned AB-Feature-108 seventy minutes in.
     database_pool_size: int = Field(default=20, ge=1, le=200)
     database_max_overflow: int = Field(default=20, ge=0, le=200)
+    # Set only when the database requires IAM authentication (e.g. an Aurora cluster created
+    # with RDS's Internet Access Gateway, which mandates IAM auth and rejects a static
+    # password outright). When set, `database_url`'s own password is ignored and a fresh
+    # fifteen-minute IAM token is generated for every new pooled connection instead.
+    database_iam_auth_region: str | None = None
     redis_url: str = Field(min_length=1)
     workspace_root: Path = Field(default=Path("/workspaces"))
     max_request_body_bytes: int = Field(default=1_048_576, ge=1_024, le=10_485_760)
