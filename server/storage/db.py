@@ -10,13 +10,14 @@ from tempfile import TemporaryDirectory
 import boto3
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import NullPool, Pool
+from sqlalchemy.pool import ConnectionPoolEntry, NullPool, Pool
 
 from storage.models import Base
 
@@ -32,14 +33,24 @@ def attach_iam_auth(engine: AsyncEngine, database_url: str, region: str) -> None
     here is safe.
     """
     url = make_url(database_url)
+    if url.host is None or url.username is None:
+        msg = "IAM-authenticated DATABASE_URL must include both a host and a username"
+        raise ValueError(msg)
+    host = url.host
+    db_username = url.username
     client = boto3.client("rds", region_name=region)
 
     @event.listens_for(engine.sync_engine, "do_connect")
-    def _inject_iam_token(dialect, conn_rec, cargs, cparams) -> None:
+    def _inject_iam_token(
+        dialect: Dialect,
+        conn_rec: ConnectionPoolEntry,
+        cargs: list[object],
+        cparams: dict[str, object],
+    ) -> None:
         cparams["password"] = client.generate_db_auth_token(
-            DBHostname=url.host,
+            DBHostname=host,
             Port=url.port or 5432,
-            DBUsername=url.username,
+            DBUsername=db_username,
             Region=region,
         )
         cparams["ssl"] = "require"

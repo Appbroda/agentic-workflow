@@ -180,14 +180,22 @@ async def test_the_api_serves_with_no_shared_platform_key() -> None:
 
 
 @pytest.mark.asyncio
-async def test_a_deployment_with_neither_a_directory_nor_a_key_says_it_cannot_check() -> None:
+async def test_a_deployment_with_neither_a_directory_nor_a_key_says_it_cannot_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The one case 503 is still the right answer to.
 
     Nothing to check a credential against: no user directory, and no shared key. That is a
     different problem for whoever is looking at it than a credential that was wrong, and the
     distinction is the reason the status exists -- which is why it is asserted here rather
     than left to be inferred from the 401 above.
+
+    `platform_api_key=None` alone does not guarantee that: `create_app` falls back to
+    `os.environ["PLATFORM_API_KEY"]` when the parameter is unset, so a CI job (or any shell)
+    that happens to export one would silently give this test a configured key and turn the
+    503 under test into a 401 -- the failure this deployment's own CI hit.
     """
+    monkeypatch.delenv("PLATFORM_API_KEY", raising=False)
     app = create_app(platform_api_key=None)
 
     async with client(app) as http:
