@@ -25,6 +25,9 @@ x-db-auth-env: &db-auth-env
   AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
 
 services:
+  workspace-init:
+    <<: *ecr-image
+
   migrate:
     <<: *ecr-image
     environment:
