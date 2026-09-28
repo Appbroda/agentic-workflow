@@ -11,6 +11,7 @@ from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import AsyncEngine, async_engine_from_config
 
+from storage.db import attach_iam_auth
 from storage.models import Base
 
 config = context.config
@@ -55,12 +56,16 @@ def do_run_migrations(connection: Connection) -> None:
 async def run_async_migrations() -> None:
     """Create an async engine and execute migrations through SQLAlchemy's sync bridge."""
     configuration = config.get_section(config.config_ini_section, {})
-    configuration["sqlalchemy.url"] = database_url()
+    url = database_url()
+    configuration["sqlalchemy.url"] = url
     connectable: AsyncEngine = async_engine_from_config(
         configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
+    iam_auth_region = os.environ.get("DATABASE_IAM_AUTH_REGION")
+    if iam_auth_region:
+        attach_iam_auth(connectable, url, iam_auth_region)
 
     async with connectable.connect() as connection:
         await connection.run_sync(do_run_migrations)

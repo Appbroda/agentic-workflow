@@ -783,6 +783,7 @@ def create_production_app() -> FastAPI:
             settings.database_url,
             pool_size=settings.database_pool_size,
             max_overflow=settings.database_max_overflow,
+            iam_auth_region=settings.database_iam_auth_region,
         )
         redis_client = _create_redis_client(settings.redis_url)
         recovery_task: asyncio.Task[None] | None = None
