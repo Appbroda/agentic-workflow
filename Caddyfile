@@ -1,0 +1,8 @@
+agent.appbroda.com {
+	reverse_proxy api:8000 {
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+}

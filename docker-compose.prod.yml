@@ -1,0 +1,39 @@
+# Production override for the EC2 deployment. Layer this on top of the base file rather than
+# editing it, so local development (`docker compose up`) is completely unaffected:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# The bundled `postgres` service is intentionally left running from the base file rather than
+# removed here: `migrate`/`api` there depend on it for a health-check gate, and replacing that
+# dependency graph via an override risks fighting Compose's merge semantics for `depends_on`.
+# It becomes a harmless, unused container once DATABASE_URL below points at Aurora instead.
+services:
+  migrate:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
+
+  api:
+    environment:
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+      DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
+    # Only Caddy is internet-facing; the API is reachable from the host for diagnostics only.
+    ports:
+      - "127.0.0.1:8000:8000"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:
