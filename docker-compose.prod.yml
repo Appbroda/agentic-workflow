@@ -7,13 +7,21 @@
 # removed here: `migrate`/`api` there depend on it for a health-check gate, and replacing that
 # dependency graph via an override risks fighting Compose's merge semantics for `depends_on`.
 # It becomes a harmless, unused container once DATABASE_URL below points at Aurora instead.
+# The base file's `migrate`/`api` only carry a `build:` (no `image:`), so `docker compose pull`
+# has nothing to fetch and `up` would try to build from source on the instance. Naming the ECR
+# image here is what makes `pull`/`up` use the tag CI just pushed instead.
+x-ecr-image: &ecr-image
+  image: ${ECR_IMAGE:?Set ECR_IMAGE in .env, e.g. 118355822219.dkr.ecr.ap-south-1.amazonaws.com/ai-platform:latest}
+
 services:
   migrate:
+    <<: *ecr-image
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
 
   api:
+    <<: *ecr-image
     environment:
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
       DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
