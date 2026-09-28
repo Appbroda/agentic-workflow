@@ -37,9 +37,11 @@ services:
     <<: *ecr-image
     environment:
       <<: *db-auth-env
-    # Only Caddy is internet-facing; the API is reachable from the host for diagnostics only.
-    ports:
-      - "127.0.0.1:8000:8000"
+    # Deliberately no ports: override here. This Compose version merges (rather than replaces)
+    # a service's `ports` list across -f files, so adding a 127.0.0.1-scoped mapping alongside
+    # the base file's plain 8000:8000 produced two entries that both tried to bind :8000 and
+    # collided with each other. The security group (only 80/443 open) is what actually keeps
+    # port 8000 non-public; the base file's all-interfaces bind is fine to keep as-is.
 
   caddy:
     image: caddy:2-alpine
