@@ -13,18 +13,27 @@
 x-ecr-image: &ecr-image
   image: ${ECR_IMAGE:?Set ECR_IMAGE in .env, e.g. 118355822219.dkr.ecr.ap-south-1.amazonaws.com/ai-platform:latest}
 
+# Compose only uses the root .env file for ${...} substitution in this file -- it does not
+# forward .env's variables into a container's own runtime environment automatically. Anything
+# boto3 (or any other in-container process) needs to see has to be listed explicitly below,
+# which is why the AWS credentials live here too, not just in .env.
+x-db-auth-env: &db-auth-env
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+  DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
+
 services:
   migrate:
     <<: *ecr-image
     environment:
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
-      DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
+      <<: *db-auth-env
 
   api:
     <<: *ecr-image
     environment:
-      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
-      DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
+      <<: *db-auth-env
     # Only Caddy is internet-facing; the API is reachable from the host for diagnostics only.
     ports:
       - "127.0.0.1:8000:8000"
