@@ -1,0 +1,61 @@
+# Production override for the EC2 deployment. Layer this on top of the base file rather than
+# editing it, so local development (`docker compose up`) is completely unaffected:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# The bundled `postgres` service is intentionally left running from the base file rather than
+# removed here: `migrate`/`api` there depend on it for a health-check gate, and replacing that
+# dependency graph via an override risks fighting Compose's merge semantics for `depends_on`.
+# It becomes a harmless, unused container once DATABASE_URL below points at Aurora instead.
+# The base file's `migrate`/`api` only carry a `build:` (no `image:`), so `docker compose pull`
+# has nothing to fetch and `up` would try to build from source on the instance. Naming the ECR
+# image here is what makes `pull`/`up` use the tag CI just pushed instead.
+x-ecr-image: &ecr-image
+  image: ${ECR_IMAGE:?Set ECR_IMAGE in .env, e.g. 118355822219.dkr.ecr.ap-south-1.amazonaws.com/ai-platform:latest}
+
+# Compose only uses the root .env file for ${...} substitution in this file -- it does not
+# forward .env's variables into a container's own runtime environment automatically. Anything
+# boto3 (or any other in-container process) needs to see has to be listed explicitly below,
+# which is why the AWS credentials live here too, not just in .env.
+x-db-auth-env: &db-auth-env
+  DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env}
+  DATABASE_IAM_AUTH_REGION: ${DATABASE_IAM_AUTH_REGION:-}
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+  AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION:-ap-south-1}
+
+services:
+  workspace-init:
+    <<: *ecr-image
+
+  migrate:
+    <<: *ecr-image
+    environment:
+      <<: *db-auth-env
+
+  api:
+    <<: *ecr-image
+    environment:
+      <<: *db-auth-env
+    # Deliberately no ports: override here. This Compose version merges (rather than replaces)
+    # a service's `ports` list across -f files, so adding a 127.0.0.1-scoped mapping alongside
+    # the base file's plain 8000:8000 produced two entries that both tried to bind :8000 and
+    # collided with each other. The security group (only 80/443 open) is what actually keeps
+    # port 8000 non-public; the base file's all-interfaces bind is fine to keep as-is.
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  caddy_data:
+  caddy_config:

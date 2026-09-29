@@ -7,15 +7,53 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
+import boto3
+from sqlalchemy import event
+from sqlalchemy.engine import make_url
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import NullPool, Pool
+from sqlalchemy.pool import ConnectionPoolEntry, NullPool, Pool
 
 from storage.models import Base
+
+
+def attach_iam_auth(engine: AsyncEngine, database_url: str, region: str) -> None:
+    """Replace the connection password with a fresh RDS/Aurora IAM auth token on every connect.
+
+    A generated token is only valid for fifteen minutes, so it cannot be baked into the URL
+    once at startup -- it has to be regenerated for each new physical connection the pool
+    opens. ``do_connect`` fires exactly there, before every connect. It fires synchronously
+    even on an async engine, because SQLAlchemy builds the DBAPI connect arguments
+    synchronously and only awaits the connect call itself, so a plain (non-async) boto3 call
+    here is safe.
+    """
+    url = make_url(database_url)
+    if url.host is None or url.username is None:
+        msg = "IAM-authenticated DATABASE_URL must include both a host and a username"
+        raise ValueError(msg)
+    host = url.host
+    db_username = url.username
+    client = boto3.client("rds", region_name=region)
+
+    @event.listens_for(engine.sync_engine, "do_connect")
+    def _inject_iam_token(
+        dialect: Dialect,
+        conn_rec: ConnectionPoolEntry,
+        cargs: list[object],
+        cparams: dict[str, object],
+    ) -> None:
+        cparams["password"] = client.generate_db_auth_token(
+            DBHostname=host,
+            Port=url.port or 5432,
+            DBUsername=db_username,
+            Region=region,
+        )
+        cparams["ssl"] = "require"
 
 
 def create_database_engine(
@@ -25,6 +63,7 @@ def create_database_engine(
     pool_size: int | None = None,
     max_overflow: int | None = None,
     poolclass: type[Pool] | None = None,
+    iam_auth_region: str | None = None,
 ) -> AsyncEngine:
     """Create a production-safe async SQLAlchemy engine for a configured database URL.
 
@@ -41,7 +80,10 @@ def create_database_engine(
     elif not database_url.startswith("sqlite") and pool_size is not None:
         options["pool_size"] = pool_size
         options["max_overflow"] = 0 if max_overflow is None else max_overflow
-    return create_async_engine(database_url, **options)
+    engine = create_async_engine(database_url, **options)
+    if iam_auth_region is not None:
+        attach_iam_auth(engine, database_url, iam_auth_region)
+    return engine
 
 
 class Database:
@@ -55,6 +97,7 @@ class Database:
         pool_size: int | None = None,
         max_overflow: int | None = None,
         poolclass: type[Pool] | None = None,
+        iam_auth_region: str | None = None,
     ) -> None:
         """Configure a database without opening a connection during application import."""
         self.engine = create_database_engine(
@@ -63,6 +106,7 @@ class Database:
             pool_size=pool_size,
             max_overflow=max_overflow,
             poolclass=poolclass,
+            iam_auth_region=iam_auth_region,
         )
         self.session_factory = async_sessionmaker(self.engine, expire_on_commit=False)
 
