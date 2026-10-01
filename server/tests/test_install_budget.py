@@ -619,6 +619,10 @@ async def test_a_preserved_workspace_with_an_unchanged_lockfile_does_not_reinsta
 
     assert first.dependency_install_status == "installed"
     assert first.dependency_lockfile_digest is not None
+    # The fake runner never touches the filesystem, so the skip below is asked to answer for
+    # a workspace whose install genuinely happened -- exactly what a real `npm ci` leaves
+    # behind, and what the skip must tell apart from a install that was only ever recorded.
+    (repository / "node_modules" / "left-pad").mkdir(parents=True)
 
     runner = _TimeoutRecordingRunner()
     second = await _preflight_over(
@@ -633,6 +637,44 @@ async def test_a_preserved_workspace_with_an_unchanged_lockfile_does_not_reinsta
     assert second.dependency_lockfile_digest == first.dependency_lockfile_digest
     assert _INSTALL_COMMAND not in [command for command, _timeout in runner.timeouts]
     assert second.validation_readiness != "blocked"
+
+
+@pytest.mark.asyncio
+async def test_a_preserved_workspace_installs_when_the_tree_was_never_actually_populated(
+    tmp_path: Path,
+) -> None:
+    """An unchanged lockfile is not evidence that the last attempt's install ever ran.
+
+    A repository blocked on attempt 0 for the wrong worker Node version never runs its
+    install at all, yet the preflight result still records a lockfile digest. Attempt 1, on a
+    worker whose Node version now satisfies the declaration, sees a preserved workspace and an
+    unchanged digest -- exactly the shape the skip above is for -- but `node_modules` was never
+    created, and skipping again would leave every later command (lint, test, build) failing on
+    an unresolvable module, misread as a repository configuration defect rather than as an
+    install this attempt boundary owed and never paid.
+    """
+    repository = _node_repository(tmp_path, "admanager", declares_engine=True)
+
+    blocked_runner = _TimeoutRecordingRunner(node_version="18.18.0")
+    blocked = await _preflight_over(
+        repository,
+        runner=blocked_runner,
+        workspace_preserved=False,
+        previous_lockfile_digest=None,
+    )
+    assert blocked.dependency_install_status == "blocked_unsupported_runtime"
+    assert not (repository / "node_modules").exists()
+
+    fixed_runner = _TimeoutRecordingRunner(node_version="22.14.0")
+    fixed = await _preflight_over(
+        repository,
+        runner=fixed_runner,
+        workspace_preserved=True,
+        previous_lockfile_digest=blocked.dependency_lockfile_digest,
+    )
+
+    assert fixed.dependency_install_status == "installed"
+    assert _INSTALL_COMMAND in [command for command, _timeout in fixed_runner.timeouts]
 
 
 @pytest.mark.asyncio
