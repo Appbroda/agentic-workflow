@@ -54,9 +54,15 @@ def openai_settings(**overrides: Any) -> Any:
         **_cleared_tier_fields(),
         **_NOTHING_DECLARED_VISION_CAPABLE,
         "openai_reasoning_model": "gpt-6-astra",
+        "openai_reasoning_effort": "max",
         "openai_coding_model": "gpt-6-astra",
         "openai_review_model": "gpt-6-astra",
         "openai_fix_model": "gpt-6-astra",
+        # gpt-6 is not the known gpt-5 family `_supports_temperature` recognises by name, so
+        # this deployment declares it itself -- exactly the AB-Feature-210 shape: an
+        # undeclared new family defaults to *supporting* `temperature` and a real request
+        # would die on a deterministic 400 without this.
+        "model_temperature_unsupported": '["gpt-6-astra"]',
     }
     return load_settings(**{**values, **overrides})
 
