@@ -21,6 +21,7 @@ from agents.shared.contracts import (
     safe_error_diagnostics,
 )
 from agents.shared.design_snapshot import design_node_names, design_request_context
+from agents.shared.task_graph import ordered_task_ids
 from artifacts.schemas import (
     ArchitectureArtifact,
     DesignSnapshotArtifact,
@@ -113,11 +114,16 @@ class FeaturePlannerAgent:
         prompt_loader: PromptLoader,
         llm_client: LLMClient,
         contract_generator: ContractCodeGenerator | None = None,
+        # Off by default, and deliberately temporary in the same sense `bounded_review_scope`
+        # is: with it off the prompt renders byte-identically to before this existed, and every
+        # plan is built exactly as it is built today. See `configs/settings.py` for why.
+        plan_task_dependencies: bool = False,
     ) -> None:
         """Inject the same bounded model boundary used by the existing technical planner."""
         self._prompt_loader = prompt_loader
         self._llm_client = llm_client
         self._contract_generator = contract_generator or OpenAPIContractCodeGenerator()
+        self._plan_task_dependencies = plan_task_dependencies
 
     async def plan(
         self,
@@ -146,6 +152,7 @@ class FeaturePlannerAgent:
             design_snapshot=(
                 "" if design is None else json.dumps(design, indent=2, sort_keys=True)
             ),
+            plan_task_dependencies=self._plan_task_dependencies,
         )
         response = await self._llm_client.respond(
             instructions=instructions,
@@ -305,6 +312,7 @@ class FeaturePlannerAgent:
         plan_payload["feature_id"] = feature_id
         plan_payload["contract_artifact_id"] = contract.artifact_id
         dropped_dependencies = _normalize_plan_topology(plan_payload, repositories)
+        dropped_task_dependencies = _normalize_task_dependencies(plan_payload)
         plan = create_artifact(
             RepositoryExecutionPlanArtifact,
             workflow_id=feature_id,
@@ -317,6 +325,10 @@ class FeaturePlannerAgent:
                 # Recorded rather than silently discarded: a model repeatedly proposing
                 # serial execution is a prompt defect worth seeing in the artifact.
                 "dropped_dependency_workstream_ids": dropped_dependencies,
+                # The task-level analogue, recorded for the same reason: an edge naming a task
+                # that does not exist is a planning defect worth seeing in the artifact rather
+                # than a reason to fail a feature.
+                "dropped_task_dependencies": dropped_task_dependencies,
             },
         )
         _ensure_plan_matches_repositories(plan, repositories)
@@ -702,6 +714,9 @@ def _workstream_payload(
         "shared_requirements": [],
         "responsibilities": [f"Implement {repository.name}'s assigned feature work."],
         "task_ids": [f"{repository.repository_id}-implementation"],
+        # One task per mock workstream, so there is nothing for it to wait for. The mock
+        # exercises the shape, and the shape of no ordering is the empty list.
+        "task_dependencies": [],
         "dependency_workstream_ids": earlier,
         "contract_sections_consumed": [],
         "contract_sections_implemented": [],
@@ -829,6 +844,65 @@ def _normalize_plan_topology(
     plan_payload["parallel_groups"] = groups
     plan_payload["execution_order"] = [item for group in groups for item in group]
     plan_payload["recommended_merge_order"] = _recommended_merge_order(entries, repositories)
+    return dropped
+
+
+def _normalize_task_dependencies(plan_payload: dict[str, Any]) -> dict[str, dict[str, list[str]]]:
+    """Remove the task edges no order can satisfy, and report them per workstream.
+
+    The treatment `_normalize_plan_topology` gives the repository graph, for the same reason.
+    An edge pointing at a task the workstream never declared, a task waiting on itself, or a
+    set of tasks waiting on each other is dropped here, which leaves the workstream saying what
+    it would have said without the mistake -- these tasks are independent -- rather than failing
+    a feature over a field nothing is scheduled from yet. A malformed *shape* is left alone for
+    schema validation and the bounded repair path that already exists for it.
+    """
+    workstreams = plan_payload.get("workstreams")
+    if not isinstance(workstreams, list):
+        return {}
+    dropped: dict[str, dict[str, list[str]]] = {}
+    for entry in workstreams:
+        if not isinstance(entry, dict):
+            continue
+        declared = entry.get("task_dependencies")
+        task_ids = entry.get("task_ids")
+        if not isinstance(declared, list) or not declared:
+            continue
+        if not isinstance(task_ids, list) or not all(isinstance(item, str) for item in task_ids):
+            continue
+        if not all(isinstance(item, dict) for item in declared):
+            continue
+        known = [str(item) for item in task_ids]
+        requested: dict[str, list[str]] = {}
+        removed: dict[str, list[str]] = {}
+        malformed = False
+        for item in declared:
+            task_id = item.get("task_id")
+            depends_on = item.get("depends_on", [])
+            if not isinstance(task_id, str) or not isinstance(depends_on, list):
+                malformed = True
+                break
+            values = [value for value in depends_on if isinstance(value, str)]
+            if task_id in known:
+                requested[task_id] = values
+            elif values:
+                removed[task_id] = sorted(set(values))
+        if malformed:
+            continue
+        _order, unresolvable = ordered_task_ids(known, requested)
+        for task_id, values in unresolvable.items():
+            removed[task_id] = sorted({*removed.get(task_id, []), *values})
+        entry["task_dependencies"] = [
+            {
+                "task_id": task_id,
+                "depends_on": [
+                    value for value in values if value not in set(removed.get(task_id, ()))
+                ],
+            }
+            for task_id, values in requested.items()
+        ]
+        if removed:
+            dropped[str(entry.get("workstream_id"))] = removed
     return dropped
 
 

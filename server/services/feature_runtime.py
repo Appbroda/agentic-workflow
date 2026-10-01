@@ -43,9 +43,11 @@ from agents.shared.contracts import (
     ARTIFACT_FILENAMES,
     AgentArtifactError,
     attempt_artifact_id,
+    attempt_number_from_qualified_id,
     create_artifact,
     safe_error_diagnostics,
 )
+from agents.shared.task_graph import ordered_task_ids
 from api.control_plane import RequestScopedCredentials
 from api.schemas import ClarificationAnswer
 from artifacts.schemas import (
@@ -577,12 +579,20 @@ class LiveRepositoryReconnaissance:
         # exists when; writing into it from the parent would couple reconnaissance to that
         # machinery for the sake of one avoided fetch. This clone is read-only and is
         # removed below, so it costs disk for the length of one model call.
+        # Resolved before the guard below, not after: every other caller of
+        # `_require_workspace_child` in this module resolves its candidate path first, and
+        # this one silently didn't. `_require_workspace_child` resolves the *root* but not
+        # the candidate, so an unresolved candidate under a symlinked `workspace_root` (a
+        # `/tmp` that is actually `/private/tmp`, say) never appears in its own resolved
+        # root's parents and the guard refuses every call, for every repository, regardless
+        # of what that repository contains -- which is exactly what made every repository
+        # reconnaissance in this deployment fail identically.
         workspace = (
             self._settings.workspace_root
             / _feature_branch_segment(feature.feature_id)
             / ".reconnaissance"
             / _safe_segment(repository.repository_id)
-        )
+        ).resolve(strict=False)
         _require_workspace_child(workspace, self._settings.workspace_root)
         operation_executor = ExternalOperationExecutor(
             journal=self._journal,
@@ -902,6 +912,25 @@ class LiveChildWorkstreamExecutor(ChildWorkstreamExecutor):
                         "workflow_id": child.child_workflow_id,
                         "metadata": {
                             **design_detail.metadata,
+                            "parent_feature_id": feature.feature_id,
+                            "read_only": True,
+                        },
+                    }
+                )
+            )
+        # This repository's own reconnaissance, re-homed the same way and for the same reason:
+        # `_primary_language` (agents/engineer/agent.py) reads it back by `repository_id` to
+        # gate language-specific prompt content, and defaults to showing nothing extra when a
+        # repository was never read or reconnaissance ran blind, so a feature with no
+        # reconnaissance at all renders byte-identical to today.
+        reconnaissance = _feature_reconnaissance(feature, repository.repository_id)
+        if reconnaissance is not None:
+            state["artifacts"].append(
+                reconnaissance.model_copy(
+                    update={
+                        "workflow_id": child.child_workflow_id,
+                        "metadata": {
+                            **reconnaissance.metadata,
                             "parent_feature_id": feature.feature_id,
                             "read_only": True,
                         },
@@ -3329,6 +3358,7 @@ class _LiveOrchestratorContext:
             prompt_loader=_prompt_loader(),
             llm_client=client("planner"),
             contract_generator=OpenAPIContractCodeGenerator(),
+            plan_task_dependencies=self._settings.plan_task_dependencies,
         )
         child_executor = LiveChildWorkstreamExecutor(
             settings=self._settings,
@@ -3575,6 +3605,22 @@ def _child_task_plan(
     model_routing: ModelRoutingDecision | None = None,
 ) -> TaskPlanArtifact:
     """Translate one feature workstream into the existing Engineer Agent's task-plan artifact."""
+    pairs = list(zip(workstream.task_ids, workstream.responsibilities, strict=False))
+    paired_ids = {task_id for task_id, _responsibility in pairs}
+    declared = {item.task_id: list(item.depends_on) for item in workstream.task_dependencies}
+    # Only the tasks this plan actually contains. `task_ids` and `responsibilities` are zipped
+    # positionally, so a workstream that declared more of one than the other loses its surplus
+    # here -- and a dependency on something that was lost would be a reference to a task the
+    # plan cannot point at, which is the one shape the task plan refuses outright. A plan that
+    # declares nothing yields an empty list for every task, exactly as it always did.
+    dependencies: dict[str, list[str]] = {
+        task_id: [
+            dependency_id
+            for dependency_id in dict.fromkeys(declared.get(task_id, ()))
+            if dependency_id in paired_ids and dependency_id != task_id
+        ]
+        for task_id, _responsibility in pairs
+    }
     tasks = [
         {
             "task_id": task_id,
@@ -3596,17 +3642,21 @@ def _child_task_plan(
             ),
             "owner": "engineer",
             "priority": "high",
-            "dependencies": [],
+            "dependencies": dependencies[task_id],
             "acceptance_criteria": workstream.acceptance_criteria,
             "estimated_effort_points": 1,
         }
-        for task_id, responsibility in zip(
-            workstream.task_ids, workstream.responsibilities, strict=False
-        )
+        for task_id, responsibility in pairs
     ]
     if not tasks:
         msg = "repository workstream requires at least one task"
         raise RuntimeConfigurationError(msg)
+    # The edges this order could not honour are deliberately discarded rather than acted on:
+    # tasks that wait on each other must stay in the graph so the artifact's own validator
+    # refuses the plan, which is where that refusal has always lived.
+    implementation_order, _unresolvable = ordered_task_ids(
+        [task_id for task_id, _responsibility in pairs], dependencies
+    )
     return create_artifact(
         TaskPlanArtifact,
         workflow_id=child.child_workflow_id,
@@ -3625,7 +3675,7 @@ def _child_task_plan(
                     "task_ids": [item["task_id"] for item in tasks],
                 }
             ],
-            "implementation_order": [item["task_id"] for item in tasks],
+            "implementation_order": implementation_order,
             "test_strategy": workstream.test_requirements,
             "risk_management_plan": [
                 "Do not change the approved integration contract.",
@@ -4089,6 +4139,26 @@ def _assigned_design_contents(
     return tuple(node.content for node in detail.nodes)
 
 
+def _feature_reconnaissance(
+    feature: FeatureWorkflowSnapshot, repository_id: str
+) -> RepositoryReconnaissanceArtifact | None:
+    """Return this repository's newest reconnaissance artifact, or nothing.
+
+    Newest, like `_feature_design_snapshot` and for its reason: a clarification answer or a
+    recovery can send the feature back through planning, and `_existing_reconnaissance`
+    (workflows/feature_workflow.py) already reuses whatever the feature holds rather than
+    reading the checkout again -- this mirrors that same "last one wins" selection, scoped to
+    one repository, for the child workflow this artifact is being re-homed into.
+    """
+    for artifact in reversed(feature.artifacts):
+        if (
+            isinstance(artifact, RepositoryReconnaissanceArtifact)
+            and artifact.repository_id == repository_id
+        ):
+            return artifact
+    return None
+
+
 def _feature_design_snapshot(feature: FeatureWorkflowSnapshot) -> DesignSnapshotArtifact | None:
     """Return the newest design snapshot this feature holds, or nothing.
 
@@ -4215,10 +4285,24 @@ def _prior_child_completions_including_published(
 def _previous_child_review(
     feature: FeatureWorkflowSnapshot, child_workflow_id: str
 ) -> ReviewArtifact | None:
-    """Find only the prior review belonging to this child, never a sibling review artifact."""
+    """Find only the prior review belonging to this child, renamed for child-scoped lineage.
+
+    Parent persistence namespaces a review by repository, exactly as it does a code completion
+    -- `_prior_child_completions`'s own docstring names this -- which the child-scoped lineage
+    matcher (`artifact_id_matches_lineage`, read by `_prior_reviews` in the reviewer agent)
+    deliberately does not accept. Without renaming it back, the reviewer's own escalation and
+    prior-findings mechanisms always see zero prior reviews for every repository, on every
+    attempt after the first -- confirmed the root cause of Fix 5 (seam-evidence escalation)
+    never firing in production. Mirrors the rename `_prior_child_completions` already performs.
+    """
     for artifact in reversed(feature.artifacts):
         if isinstance(artifact, ReviewArtifact) and artifact.workflow_id == child_workflow_id:
-            return artifact
+            attempt = attempt_number_from_qualified_id(artifact.artifact_id)
+            if attempt is None:
+                return artifact
+            return artifact.model_copy(
+                update={"artifact_id": attempt_artifact_id(ARTIFACT_FILENAMES["review"], attempt)}
+            )
     return None
 
 

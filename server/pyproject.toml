@@ -91,3 +91,9 @@ line-ending = "lf"
 python_version = "3.12"
 strict = true
 exclude = ["^\\.venv/"]
+
+# boto3 ships no inline types and no stub package this project depends on; the IAM-auth-token
+# call site is the one place it's imported, read as Any rather than failing the whole run.
+[[tool.mypy.overrides]]
+module = "boto3.*"
+ignore_missing_imports = true

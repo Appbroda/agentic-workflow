@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import boto3
 from sqlalchemy import event
@@ -44,8 +45,8 @@ def attach_iam_auth(engine: AsyncEngine, database_url: str, region: str) -> None
     def _inject_iam_token(
         dialect: Dialect,
         conn_rec: ConnectionPoolEntry,
-        cargs: list[object],
-        cparams: dict[str, object],
+        cargs: tuple[Any, ...],
+        cparams: dict[str, Any],
     ) -> None:
         cparams["password"] = client.generate_db_auth_token(
             DBHostname=host,

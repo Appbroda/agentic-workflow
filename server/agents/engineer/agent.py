@@ -38,6 +38,7 @@ from agents.shared.design_snapshot import (
 from artifacts.schemas import (
     CodeCompletionArtifact,
     FileChange,
+    RepositoryReconnaissanceArtifact,
     RequirementImplementationEvidence,
     ReviewArtifact,
     TaskPlanArtifact,
@@ -2079,6 +2080,23 @@ class EngineerAgent:
         definition_anchor_sites = definitions.sites(
             definition_symbols(blocking_diagnostics), limit=_MAX_DIAGNOSTIC_CONTEXT_PATHS
         )
+        # A second, independent use of the same lookup: not a diagnostic's symbol, but one the
+        # plan or the review that rejected the last attempt names in its own prose. The ranked
+        # candidate pool below only ever sees term overlap against that same prose -- a file
+        # relevant purely because it defines a name the plan talks about, with no shared path
+        # words and no diagnostic pointing at it yet, can miss the first attempt's snapshot on
+        # that basis alone. One capped scan, reused as a flat path set rather than a per-file
+        # method, so ranking a hundred candidates costs one lookup and not a hundred.
+        plan_relevance_sites = definitions.sites(
+            definition_symbols(
+                (
+                    artifact_json(task_plan),
+                    artifact_json(prior_review) if prior_review is not None else "",
+                )
+            ),
+            limit=_MAX_DIAGNOSTIC_CONTEXT_PATHS,
+        )
+        relevance_defining_paths = frozenset(site.path for site in plan_relevance_sites)
         # Resolved here rather than inline, because this tier now answers with two things: the
         # modules it force-includes, and the ones its own cap refused. The refusals are handed
         # to the snapshot so they reach the record -- a module this change imports that no
@@ -2133,6 +2151,7 @@ class EngineerAgent:
                 diagnostic_locations, definition_anchor_sites
             ),
             candidates_discarded=imported.discarded,
+            relevance_defining_paths=relevance_defining_paths,
             max_characters=self._snapshot_budget.max_characters,
             per_file_max_characters=self._snapshot_budget.per_file_max_characters,
         )
@@ -2189,6 +2208,7 @@ class EngineerAgent:
             previous_attempt_diff=self._previous_attempt_diff or "",
             previous_attempt_withheld_files=list(self._previous_attempt_withheld_files),
             previous_attempt_files_present=previous_attempt_files_present,
+            primary_language=_primary_language(state),
         )
         input_text = json.dumps(
             {
@@ -2749,6 +2769,28 @@ def _prior_review_for_retry(
     if state["retry_count"] > 0 and not allow_without_review:
         msg = "engineer retry requires prior 007_review.json"
         raise AgentArtifactError(msg)
+    return None
+
+
+def _primary_language(state: AgentState) -> str | None:
+    """Return this workstream's repository's detected primary language, if reconnaissance saw it.
+
+    Reconnaissance runs once per repository at the feature level; the child workflow that runs
+    this agent is re-homed onto exactly one repository, named by its own workspace id. Absence
+    -- reconnaissance never ran, ran blind, or could not confidently detect one -- returns
+    `None`, so the caller renders the base prompt exactly as it does today.
+    """
+    repository_id = state["workspace_descriptor"].workspace_id
+    for artifact in state["artifacts"]:
+        if (
+            isinstance(artifact, RepositoryReconnaissanceArtifact)
+            and artifact.repository_id == repository_id
+        ):
+            profile = artifact.metadata.get("technology_profile")
+            if isinstance(profile, dict):
+                language = profile.get("primary_language")
+                if isinstance(language, str) and language:
+                    return language
     return None
 
 
@@ -3502,6 +3544,11 @@ def _repository_context(
     # Paths a bounded selector upstream resolved and refused, so they never reached
     # ``required_paths`` to be dropped here. Reported, never packed.
     candidates_discarded: Mapping[str, str] | None = None,
+    # Candidates this checkout's own definition-site lookup found to define a name the plan or
+    # the rejecting review names in prose -- a second, independent relevance signal alongside
+    # ``relevance_terms``'s path-word overlap. Additive only: a path in this set is never
+    # ranked worse for it, only ever no worse than the term heuristic already had it.
+    relevance_defining_paths: frozenset[str] = frozenset(),
     # The budgets as parameters with constant defaults (the `contract_sections` precedent):
     # the derivation from the declared model window happens exactly once, at the composition
     # site, and this function packs under whatever it was handed.
@@ -3548,7 +3595,7 @@ def _repository_context(
     # contents still never leave. Weighed and chosen, not overlooked.
     all_inventory = sorted(path.as_posix() for path in existing_files if _safe_context_path(path))
     inventory = all_inventory[:_REPOSITORY_CONTEXT_MAX_INVENTORY_FILES]
-    ranked = _context_candidates(existing_files, relevance_terms)
+    ranked = _context_candidates(existing_files, relevance_terms, relevance_defining_paths)
     required = [Path(item) for item in required_paths if Path(item) in existing_files]
     required_set = set(required)
     line_numbers = required_line_numbers or {}
@@ -3827,7 +3874,9 @@ def _refuse_if_required_context_dropped(
 
 
 def _context_candidates(
-    existing_files: set[Path], relevance_terms: frozenset[str] = frozenset()
+    existing_files: set[Path],
+    relevance_terms: frozenset[str] = frozenset(),
+    relevance_defining_paths: frozenset[str] = frozenset(),
 ) -> list[Path]:
     """Prefer checkout root files, then the candidates this task actually names.
 
@@ -3845,13 +3894,15 @@ def _context_candidates(
     )
     nested_files = sorted(
         (path for path in safe_files if path.parent != Path(".")),
-        key=lambda path: _context_path_order(path, relevance_terms),
+        key=lambda path: _context_path_order(path, relevance_terms, relevance_defining_paths),
     )
     return [*root_files, *nested_files]
 
 
 def _context_path_order(
-    path: Path, relevance_terms: frozenset[str] = frozenset()
+    path: Path,
+    relevance_terms: frozenset[str] = frozenset(),
+    relevance_defining_paths: frozenset[str] = frozenset(),
 ) -> tuple[int, int, str]:
     """Prioritize task relevance, then repository metadata, without a language decision.
 
@@ -3861,19 +3912,34 @@ def _context_path_order(
     never shown and the model kept guessing at an interface it was never allowed to read.
     """
     metadata_first = path.suffix.lower() in _REPOSITORY_CONTEXT_METADATA_SUFFIXES
-    return (-_relevance_score(path, relevance_terms), 0 if metadata_first else 1, path.as_posix())
+    score = _relevance_score(path, relevance_terms, relevance_defining_paths)
+    return (-score, 0 if metadata_first else 1, path.as_posix())
 
 
-def _relevance_score(path: Path, relevance_terms: frozenset[str]) -> int:
-    """Count the distinct task terms a path matches, weighting its own file name highest."""
-    if not relevance_terms:
+def _relevance_score(
+    path: Path,
+    relevance_terms: frozenset[str],
+    relevance_defining_paths: frozenset[str] = frozenset(),
+) -> int:
+    """Count the distinct task terms a path matches, weighting its own file name highest.
+
+    ``relevance_defining_paths`` is a second, independent signal: this checkout's own
+    definition-site lookup found the path defines a name the plan or the rejecting review
+    names in its own prose, not by path-word overlap. Additive only -- a path the term
+    heuristic already ranked keeps that rank; this only lifts a candidate term overlap alone
+    would have missed.
+    """
+    if not relevance_terms and path.as_posix() not in relevance_defining_paths:
         return 0
     stem_terms = set(_split_context_terms(path.stem))
     directory_terms = {term for parent in path.parts[:-1] for term in _split_context_terms(parent)}
     # A directory says which area of the repository a file belongs to; the file name says
     # whether this is the module the task talks about. Rank the stronger claim higher.
-    return 2 * _matching_term_count(stem_terms, relevance_terms) + _matching_term_count(
-        directory_terms, relevance_terms
+    symbol_score = 1 if path.as_posix() in relevance_defining_paths else 0
+    return (
+        2 * _matching_term_count(stem_terms, relevance_terms)
+        + _matching_term_count(directory_terms, relevance_terms)
+        + symbol_score
     )
 
 

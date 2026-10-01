@@ -188,6 +188,59 @@ def test_prompt_templates_render_versioned_context(
     assert template_name in loader.list_templates()
 
 
+_ENGINEER_BASE_CONTEXT: dict[str, str] = {
+    "workflow_id": "workflow-1",
+    "workspace_descriptor": "workspace-1",
+    "task_plan": "Implement schemas.",
+    "repository_context": "Repository files.",
+    "execution_context": "No retry context.",
+    "lint_capabilities": "{}",
+    "previous_attempt_diff": "",
+}
+
+
+@pytest.mark.parametrize("primary_language", ["JavaScript", "TypeScript"])
+def test_the_javascript_lint_fragment_appears_for_javascript_and_typescript(
+    primary_language: str,
+) -> None:
+    """A JS or TS repository is shown the loop/const/module.exports guidance."""
+    loader = PromptLoader()
+
+    rendered_prompt = loader.render(
+        "engineer/v1.jinja2", primary_language=primary_language, **_ENGINEER_BASE_CONTEXT
+    )
+
+    assert "mixing `import` with `module.exports`" in rendered_prompt
+
+
+@pytest.mark.parametrize("primary_language", ["Python", "Go", "Rust", "Java", "Unknown"])
+def test_the_javascript_lint_fragment_is_absent_for_every_other_language(
+    primary_language: str,
+) -> None:
+    """A non-JS repository never sees loop/const/module.exports guidance meant for JS."""
+    loader = PromptLoader()
+
+    rendered_prompt = loader.render(
+        "engineer/v1.jinja2", primary_language=primary_language, **_ENGINEER_BASE_CONTEXT
+    )
+
+    assert "mixing `import` with `module.exports`" not in rendered_prompt
+
+
+def test_the_javascript_lint_fragment_is_absent_when_the_language_is_not_supplied() -> None:
+    """A caller that never learned the repository's language keeps today's plain prompt.
+
+    Every render call site that predates this fragment -- and every test fixture built before
+    it -- passes no `primary_language` at all; `StrictUndefined` would otherwise fail every one
+    of them the moment this template renders.
+    """
+    loader = PromptLoader()
+
+    rendered_prompt = loader.render("engineer/v1.jinja2", **_ENGINEER_BASE_CONTEXT)
+
+    assert "mixing `import` with `module.exports`" not in rendered_prompt
+
+
 def test_the_review_is_told_which_commands_the_platform_will_run() -> None:
     """A demand to execute something needs the list of what can be executed to be bounded by.
 
@@ -267,6 +320,46 @@ def test_a_reconnaissance_that_established_no_commands_reads_as_unknown() -> Non
     )
 
     assert "was not established for that repository, not" in rendered
+
+
+def _planner_render(**overrides: Any) -> str:
+    """Render the planner prompt with the minimal fixed context every render test here shares."""
+    return PromptLoader().render(
+        "planner/feature_v1.jinja2",
+        feature_id="feature-1",
+        technical_prd="{}",
+        repositories=[],
+        has_reconnaissance=True,
+        reconnaissance=json.dumps([{"repository_id": "admin"}]),
+        design_snapshot="",
+        **overrides,
+    )
+
+
+def test_the_planner_prompt_is_unchanged_when_task_dependencies_are_not_requested() -> None:
+    """Every deployment that never sets plan_task_dependencies must see today's exact prompt."""
+    without_flag = _planner_render()
+    with_flag_explicitly_off = _planner_render(plan_task_dependencies=False)
+
+    assert without_flag == with_flag_explicitly_off
+    assert "task_dependencies" not in without_flag
+
+
+def test_the_planner_prompt_explains_task_dependencies_when_requested() -> None:
+    """Turning the flag on adds the task_dependencies field and its own-task-only guidance."""
+    rendered = _planner_render(plan_task_dependencies=True)
+
+    assert '"task_dependencies"' in rendered
+    assert "puts them in a queue for no reason" in rendered
+    assert "described a sequence rather than a dependency" in rendered
+
+
+def test_the_planner_prompt_shows_a_concrete_authentication_scheme_example() -> None:
+    """A real example value and explicit guidance replace the bare placeholder type-name."""
+    rendered = _planner_render()
+
+    assert '"scheme": "bearer"' in rendered
+    assert "never a descriptive sentence about it" in rendered
 
 
 def test_prompt_loader_rejects_path_traversal_and_missing_context() -> None:

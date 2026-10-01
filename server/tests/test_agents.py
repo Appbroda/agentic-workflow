@@ -1850,6 +1850,70 @@ def test_repository_context_shows_the_module_the_task_names_over_alphabetical_ne
     assert middleware.as_posix() not in [item["path"] for item in unranked["files"]]
 
 
+def test_repository_context_shows_a_file_the_plan_names_only_through_a_symbol_it_defines(
+    tmp_path: Path,
+) -> None:
+    """A file relevant only because it defines a name the plan talks about is still shown.
+
+    `permissionUtils` shares no path word with the module that defines it -- the term
+    heuristic alone would never rank it -- so this is the case term overlap structurally
+    cannot cover, and the one the symbol signal exists for.
+    """
+    definer = Path("server") / "lib" / "grants.js"
+    (tmp_path / "server" / "lib").mkdir(parents=True)
+    (tmp_path / definer).write_text(
+        "module.exports.permissionUtils = function permissionUtils() {};\n", encoding="utf-8"
+    )
+    source_files = {definer}
+    (tmp_path / "server" / "controllers").mkdir(parents=True)
+    for index in range(90):
+        earlier = Path("server") / "controllers" / f"controller_{index:02d}.js"
+        (tmp_path / earlier).write_text(f"// controller {index}\n", encoding="utf-8")
+        source_files.add(earlier)
+
+    context = _repository_context(
+        source_files,
+        WorkspaceFileTools(tmp_path),
+        relevance_defining_paths=frozenset({definer.as_posix()}),
+    )
+
+    shown = [item["path"] for item in context["files"]]
+    assert definer.as_posix() in shown
+    # Without the symbol signal, the same budget shows only the alphabetically earlier
+    # controllers -- confirming the file's inclusion above is the new signal's doing, not an
+    # artifact of the fixture.
+    unranked = _repository_context(source_files, WorkspaceFileTools(tmp_path))
+    assert definer.as_posix() not in [item["path"] for item in unranked["files"]]
+
+
+def test_repository_context_symbol_signal_never_demotes_an_already_ranked_file(
+    tmp_path: Path,
+) -> None:
+    """The symbol signal is additive: it must never rank a term-matched file worse."""
+    middleware = Path("server") / "middlewares" / "authenticate.js"
+    (tmp_path / "server" / "middlewares").mkdir(parents=True)
+    (tmp_path / middleware).write_text("module.exports = { requireAdmin };\n", encoding="utf-8")
+    source_files = {middleware}
+
+    relevance = _relevance_terms(
+        '{"summary": "Add an admin route that reuses the existing authenticate middleware."}'
+    )
+    with_symbol_signal = _repository_context(
+        source_files,
+        WorkspaceFileTools(tmp_path),
+        relevance,
+        relevance_defining_paths=frozenset({middleware.as_posix()}),
+    )
+    without_symbol_signal = _repository_context(
+        source_files, WorkspaceFileTools(tmp_path), relevance
+    )
+
+    shown_with = [item["path"] for item in with_symbol_signal["files"]]
+    shown_without = [item["path"] for item in without_symbol_signal["files"]]
+    assert middleware.as_posix() in shown_with
+    assert middleware.as_posix() in shown_without
+
+
 def test_repository_context_omits_dependency_trees_and_bounds_its_inventory(tmp_path: Path) -> None:
     """A dependency tree cannot make the coding prompt exceed the provider size limit."""
     source_files = {Path("node_modules") / "package" / "index.js"}

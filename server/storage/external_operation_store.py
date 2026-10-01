@@ -49,7 +49,18 @@ class OperationReconciliationRequired(ExternalOperationError):
 
 
 class OperationLeaseLostError(ExternalOperationError):
-    """An operation could not renew its durable liveness marker while executing."""
+    """An operation could not renew its durable liveness marker while executing.
+
+    ``operation_type`` is set after construction, once the catching handler
+    (``services/external_operations.py``) knows which operation this happened to -- read back
+    by ``is_transient_provider_fault`` (``workflows/feature_workflow.py``) to tell a lease lost
+    on a workspace-local operation (nothing outside the workspace to reconcile, safe to retry)
+    from one lost on an operation with a real external effect (not safe to retry blind). `None`
+    until then, and for any caller that never sets it, which keeps every existing
+    ``OperationLeaseLostError(msg)`` raise unchanged.
+    """
+
+    operation_type: ExternalOperationType | None = None
 
 
 class OperationTransitionConflictError(ExternalOperationError):

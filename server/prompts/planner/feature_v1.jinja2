@@ -123,7 +123,7 @@ section is not applicable. Do not rename fields or substitute similar ones.
       }
     ],
     "authentication_contract": {
-      "scheme": "string",
+      "scheme": "bearer",
       "header_name": "string or null",
       "description": "string"
     },
@@ -183,6 +183,14 @@ section is not applicable. Do not rename fields or substitute similar ones.
         ],
         "responsibilities": ["string"],
         "task_ids": ["unique string"],
+{%- if plan_task_dependencies | default(false) %}
+        "task_dependencies": [
+          {
+            "task_id": "a task_id declared in this same workstream's task_ids",
+            "depends_on": ["another task_id declared in this same workstream's task_ids"]
+          }
+        ],
+{%- endif %}
         "dependency_workstream_ids": ["other workstream_id"],
         "contract_sections_consumed": ["an operation_id, shared schema name, event_name, error code or environment variable name defined in this same integration_contract"],
         "contract_sections_implemented": ["an operation_id, shared schema name, event_name, error code or environment variable name defined in this same integration_contract"],
@@ -213,7 +221,10 @@ section is not applicable. Do not rename fields or substitute similar ones.
   }
 }
 
-`authentication_contract` may be null. `request_schema` and `schema_definition` may be
+`authentication_contract` may be null, but when present its `scheme` must name the actual
+authentication mechanism concisely -- `bearer`, `basic`, `apiKey`, or a comparably short token a
+client library would recognize -- never a descriptive sentence about it. `request_schema` and
+`schema_definition` may be
 null. `api_contracts`, `data_entities`, `risks`, `event_contracts`, and
 `environment_variables` may be empty arrays. Every item in `query_parameters`,
 `path_parameters`, and `headers` must be a JSON object, never a plain string; use an empty
@@ -240,6 +251,27 @@ wait merely because it calls another repository's API, and never use it to expre
 preferred merge or deployment sequence: put that in `recommended_merge_order` instead.
 Scheduling is recomputed deterministically from these dependencies, so an unjustified
 dependency will be discarded.
+{%- if plan_task_dependencies | default(false) %}
+A workstream's `task_ids` and `responsibilities` are one list of tasks written as two arrays:
+the first task_id names the task the first responsibility describes, the second names the
+second, and so on. Write them in the same order and give them the same length. Split a
+workstream into more than one task only where the work genuinely separates into pieces that
+could each be implemented and reviewed on their own.
+Use `task_dependencies` to say that one of that workstream's tasks cannot be started until
+another of its tasks is finished. Every `task_id` and every `depends_on` entry must be a task
+declared in that same workstream's `task_ids`: this is ordering inside one repository, and
+ordering between repositories is the `dependency_workstream_ids` question above. Declare a
+dependency only where the later task would have nothing to work against until the earlier one
+exists -- the module it imports, the schema it reads, the table its query needs. Never make a
+task wait merely because it is written later in the list, because it touches the same files,
+or because it reads as the next step of the same story: those tasks are independent, and
+saying otherwise puts them in a queue for no reason. A workstream whose every task waits for
+the one before it has described a sequence rather than a dependency, and says exactly as much
+as declaring none. Declaring none is the ordinary case: use the empty array, or omit
+`task_dependencies` entirely, when the tasks can be done in any order. An edge naming a task
+the workstream does not declare, a task waiting on itself, or a set of tasks waiting on each
+other is discarded.
+{%- endif %}
 Every name in `contract_sections_implemented` and `contract_sections_consumed` must be defined
 in the `integration_contract` of this same response: an `operation_id`, a `shared_schemas` name,
 an `event_contracts` event_name, an `error_contracts` code, or an `environment_variables` name.

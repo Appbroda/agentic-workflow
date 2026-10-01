@@ -166,6 +166,28 @@ def test_repository_environment_rejects_credential_overrides() -> None:
         repository_subprocess_environment({"OPENAI_API_KEY": "do-not-pass"})
 
 
+@pytest.mark.asyncio
+async def test_repository_subprocess_environment_silences_the_browserslist_staleness_warning(
+    tmp_path: Path,
+) -> None:
+    """Every install/lint/test/build subprocess gets the flag browserslist itself documents
+    for suppressing "caniuse-lite is outdated" -- a reminder about a dependency's own age, not
+    a finding about any feature's change, that would otherwise recur on every run against a
+    repository whose lockfile predates the check by a few months."""
+    script = "import os; print(os.environ.get('BROWSERSLIST_IGNORE_OLD_DATA'))"
+
+    result = await AsyncioProcessRunner().run(
+        (sys.executable, "-c", script),
+        tmp_path,
+        10,
+        MockCancellationToken(),
+        repository_subprocess_environment(),
+    )
+
+    assert result.succeeded
+    assert result.stdout.strip() == "1"
+
+
 def test_legacy_gitpython_environment_masks_inherited_secrets_and_hooks(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

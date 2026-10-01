@@ -51,6 +51,12 @@ class ExternalOperationType(StrEnum):
     # artifact like every other pre-coding stage, and no result is ever replayed from a row.
     # A feature that cites no design writes none of these at all.
     FETCH_DESIGN_REFERENCE = "fetch_design_reference"
+    # In the same block for the same reason: the cross-repository seam call AB-Feature-174
+    # hung inside had neither a journal row nor a heartbeat, so a genuine hang and silence
+    # between polls were indistinguishable. The stage resumes from
+    # `_persisted_integration_review`'s artifact like every other pre-coding call, so this is
+    # never a recovery input either.
+    RUN_INTEGRATION_REVIEW = "run_integration_review"
 
 
 class ExternalOperationStatus(StrEnum):

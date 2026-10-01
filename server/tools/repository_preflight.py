@@ -261,6 +261,7 @@ class RepositoryPreflight:
             and lockfile_digest is not None
             and workspace_preserved
             and (lockfile_digest == previous_lockfile_digest)
+            and _installed_trees_present(installers)
         ):
             # The tree already holds exactly these dependencies and nothing has asked for
             # different ones. Recorded as its own status rather than as `installed`, so an
@@ -1404,6 +1405,46 @@ _MANAGER_LOCKFILES = {
     "yarn": ("yarn.lock",),
     "uv": ("uv.lock",),
 }
+
+# Where each manager's install actually lands, so the unchanged-lockfile skip below can tell
+# "nothing has changed" from "nothing was ever installed". A lockfile digest says only that
+# an install *would* be a repeat of the last one -- it says nothing about whether that install
+# ever actually ran, and it is recorded even when one of the earlier `install_status` branches
+# refused to run one (`blocked_unsupported_runtime`, `blocked_missing_lockfile`). A worker that
+# was blocked on attempt 0 for the wrong Node version, then unblocked on attempt 1 with the
+# lockfile untouched, saw this skip fire with no `node_modules` on disk anywhere -- the
+# repository's checked-in dependency (already declared in its manifest) was never missing, it
+# was simply never installed, and lint/test then failed on it in a way this platform
+# misclassified as invalid repository configuration rather than as its own skipped step.
+_MANAGER_INSTALLED_TREES = {
+    "npm": "node_modules",
+    "pnpm": "node_modules",
+    "yarn": "node_modules",
+    "uv": ".venv",
+}
+
+
+def _installed_trees_present(installers: Sequence[tuple[str, list[str], Path]]) -> bool:
+    """Whether every installer's own installed tree already exists and holds something.
+
+    Checked directly on disk rather than inferred from any recorded status, because the
+    workspace this runs against is the one thing here that cannot lie: a preserved workspace
+    whose lockfile digest matches is exactly the case an empty or absent tree must not be
+    allowed to pass silently. Fails toward installing -- an unrecognised manager or a tree this
+    call cannot read answers "not present", which routes to a real install rather than another
+    skip.
+    """
+    for manager, _command, install_root in installers:
+        tree_name = _MANAGER_INSTALLED_TREES.get(manager)
+        if tree_name is None:
+            return False
+        tree = install_root / tree_name
+        try:
+            if not tree.is_dir() or not any(tree.iterdir()):
+                return False
+        except OSError:
+            return False
+    return True
 
 
 def _lockfile_digest(root: Path, installers: Sequence[tuple[str, list[str], Path]]) -> str | None:

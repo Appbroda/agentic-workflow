@@ -158,6 +158,19 @@ pass. Where it would take you into a file the blocking findings do not touch, le
 say so in `summary`. These are carried because a finding raised once and withheld comes back as a
 blocking finding on the next attempt, which spends an attempt on something already known.
 
+One shape is worth reading twice rather than once: an advisory finding that names a real defect
+class -- a missing guard, a race, a validation gap -- in a file neither it nor the work order
+sends you into. Leaving that file alone is still correct; but if your own change adds or rewrites
+a file that does the same kind of thing the finding describes, check that file against the same
+defect while you are already looking at it, rather than waiting for a later review to name it a
+second time in the file you actually wrote.
+
+A blocking finding can name a file for the same reason without asking you to change it: when the
+finding says the review's own evidence about a file was incomplete or left out -- omitted,
+truncated, not shown -- rather than that the file itself is wrong, the file is not the work order
+either. Editing it only because it was named this way adds a change the next review has not asked
+for, and is reported as exactly that.
+
 If `retry_plan.wiring_repair` is present in that context, the one defect to fix is that `symbol`
 is not reachable from `target_path`; everything else the previous attempt wrote was correct. Add
 an `edits` entry on `target_path` that makes `symbol` part of what that file actually renders,
@@ -197,6 +210,10 @@ fails the commit, which no later edit to the surrounding code can clear. A file 
 configuration does not list was not resolved, not proven rule-free: for files of that class,
 and whenever no configuration is listed at all, follow the conventions visible in the existing
 files and add no suppressions.
+
+{% if (primary_language | default("Unknown")) in ("JavaScript", "TypeScript") -%}
+{% include "engineer/languages/javascript.jinja2" %}
+{% endif -%}
 
 {% if previous_attempt_diff %}
 Your previous attempt produced the change below, and it was rejected in a way that made it not
@@ -323,6 +340,25 @@ and answer by writing the same test again. If exercising a route or a page end t
 the whole application, mount only the piece under test, or substitute the module that connects,
 using whatever the repository's existing tests already do for this. A handler exercised through a
 request and response double is worth more than an end-to-end test that cannot finish.
+
+Mounting the application's own real entry point can satisfy that same boundary and still hang for
+a reason that has nothing to do with the connection this test is actually about: the entry point's
+own wiring may construct other clients -- a mail service, a queue, a payment gateway -- that this
+change never touches, and the suite hangs on whichever of those has no working credential in this
+environment. Prefer the narrowest real boundary that exercises what changed -- the specific route,
+handler, or page under test -- over the whole assembled application, even when a real boundary,
+not a wholesale mock, is exactly what the change calls for.
+
+Substituting that connection is not only about finishing on time: when the code you changed calls
+through a shared, already-configured client -- an HTTP client with its own base URL, a database or
+queue connection the repository wires up once and reuses -- a test that replaces the whole calling
+module can prove your code called something, but not that what actually left the client was
+correct. A base URL and a request path were once each right on their own and wrong together,
+joining into a route that did not exist, and only a test substituting the connection at its own
+boundary -- the transport a real client would use, not the module that calls it -- would have
+caught it. Prefer that boundary when this repository's tests already establish one; add it there
+in the same shape as the repository's existing tests for a comparable call, rather than mocking
+the calling module wholesale.
 When your change has to call a module this repository already provides, read that module in the
 snapshot and call what it actually exports, by name. Never probe for an export shape at runtime,
 never wrap the import in a fallback that tries several names in turn, and never answer with an
@@ -331,3 +367,16 @@ behavior the requirement asked for with a runtime failure that the repository's 
 observe. If the snapshot does not show you a module the task depends on, implement everything
 that does not depend on it and say plainly in your summary which module you could not see,
 rather than guessing at its interface.
+The same care extends to every identifier your new code touches, not only a module's export
+shape: a symbol used without a matching import in the file that uses it -- a well-known
+library, a helper defined elsewhere, a name a test's own setup happens to provide globally --
+is undefined in exactly the file the lint gate checks. Re-read each file you return once
+against exactly this before calling it finished.
+The same is true when a requirement asks you to reuse an existing cross-cutting mechanism --
+authentication, request-forgery protection, rate-limiting, logging -- rather than a single
+module: search the snapshot for it by what it does before writing a new one. A second
+mechanism placed beside the first is never equivalent to it, even when it is meant to behave
+the same way, because nothing then proves the two agree, and applying a newly-written one to
+an existing route changes behavior the requirement never asked you to touch. If the snapshot
+does not show you where this repository's version of it lives, say so plainly in your summary
+rather than substituting your own.

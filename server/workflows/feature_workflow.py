@@ -92,6 +92,7 @@ from services.design_resolution import (
     unreachable_design_detail,
 )
 from services.external_operations import ExternalOperationExecutor
+from services.recovery_service import _RECOVERY_POLICY, RecoveryDisposition
 from services.repository_repair import (
     build_repair_payload,
     find_repair,
@@ -685,6 +686,22 @@ def is_transient_provider_fault(error: BaseException) -> bool:
     and the second must win, because attempting an unconfirmed effect again is the one guess
     the operation journal exists to prevent.
     """
+    if isinstance(error, OperationLeaseLostError):
+        # A lease lost mid-execution means the platform cannot confirm whether the protected
+        # action still completed -- but only when that action could have an effect outside
+        # this workstream's own workspace. The recovery sweep's own policy table
+        # (services/recovery_service.py) already answers exactly this question for every
+        # operation type: a WORKSPACE_LOCAL operation (a coding call, a review, a lint/test/
+        # build run) has nothing outside the workspace to reconcile, so losing its lease is
+        # retryable like any other transient fault -- AB-Feature-167's reviewer call among
+        # them. LOCAL_RECONCILE is deliberately excluded: it settles from on-disk evidence
+        # rather than being unconditionally safe, and this check cannot run that
+        # reconciliation. Everything else keeps the unconditional refusal below.
+        operation_type = getattr(error, "operation_type", None)
+        return (
+            operation_type is not None
+            and _RECOVERY_POLICY.get(operation_type) is RecoveryDisposition.WORKSPACE_LOCAL
+        )
     if isinstance(error, _UNCONFIRMED_OPERATION_FAULTS):
         return False
     if isinstance(error, OperationReplayRefused):
@@ -2609,21 +2626,34 @@ class FeatureWorkflowOrchestrator:
                 state.planning_provider_fault_seconds or 0.0
             ) + fault_seconds
 
+        _LOGGER.info("feature_stage_started", feature_id=state.feature_id, stage=stage)
         while True:
             await self._raise_if_cancelled(state)
             attempt_started = time.monotonic()
             try:
                 value = await call()
-            except _UNCONFIRMED_OPERATION_FAULTS:
+            except _UNCONFIRMED_OPERATION_FAULTS as error:
                 # Ordered first, as in the child loop. An effect that could not be confirmed
                 # is a question for a person, never something to attempt again.
                 record_clocks()
+                _LOGGER.error(
+                    "feature_stage_failed",
+                    feature_id=state.feature_id,
+                    stage=stage,
+                    error_type=type(error).__name__,
+                )
                 raise
             except _INFRASTRUCTURE_FAULTS as error:
                 if not is_transient_provider_fault(error):
                     # A deterministic provider answer returns identically on every retry;
                     # AB-Feature-172 spent nine calls proving that on one 400.
                     record_clocks()
+                    _LOGGER.error(
+                        "feature_stage_failed",
+                        feature_id=state.feature_id,
+                        stage=stage,
+                        error_type=type(error).__name__,
+                    )
                     raise
                 faults += 1
                 # The stall is the provider's, not the requirement's -- the same
@@ -2631,6 +2661,12 @@ class FeatureWorkflowOrchestrator:
                 fault_seconds += time.monotonic() - attempt_started
                 if faults > _ALLOWED_FEATURE_STAGE_INFRASTRUCTURE_FAULTS:
                     record_clocks()
+                    _LOGGER.error(
+                        "feature_stage_failed",
+                        feature_id=state.feature_id,
+                        stage=stage,
+                        error_type=type(error).__name__,
+                    )
                     raise
                 backoff = _fault_backoff_seconds(error, fault_count=faults)
                 fault_seconds += backoff
@@ -2645,6 +2681,7 @@ class FeatureWorkflowOrchestrator:
                 await self._sleep_between_faults(state, backoff)
             else:
                 record_clocks()
+                _LOGGER.info("feature_stage_completed", feature_id=state.feature_id, stage=stage)
                 return value
 
     async def _journaled_planning_call[T](
@@ -3487,11 +3524,19 @@ class FeatureWorkflowOrchestrator:
         )
         review = _persisted_integration_review(state, input_signature=input_signature)
         if review is None:
-            review = await self._integration_reviewer.review(
-                feature_id=state.feature_id,
-                contract=contract,
-                child_results=child_results,
-                merge_order=integration_merge_order,
+            # Journaled like every other pre-coding-shaped call: a hung seam review is a row
+            # with a widening started_at->heartbeat_at gap instead of silence (AB-Feature-174).
+            review = await self._journaled_planning_call(
+                state,
+                operation_type=ExternalOperationType.RUN_INTEGRATION_REVIEW,
+                stage="integration_review",
+                call=lambda: self._integration_reviewer.review(
+                    feature_id=state.feature_id,
+                    contract=contract,
+                    child_results=child_results,
+                    merge_order=integration_merge_order,
+                ),
+                safe_input={"repository_ids": sorted(ready_repository_ids)},
             )
             review_attempt = sum(
                 isinstance(artifact, IntegrationReviewArtifact) for artifact in state.artifacts
@@ -3511,6 +3556,12 @@ class FeatureWorkflowOrchestrator:
             )
             _append_artifacts(state, [review])
             await self._checkpoint(state, WorkflowCheckpointBoundary.AFTER_VALIDATION)
+        _LOGGER.info(
+            "integration_review_verdict",
+            feature_id=state.feature_id,
+            review_status=review.review_status,
+            repository_ids=sorted(ready_repository_ids),
+        )
         # An integration review cannot approve a contract only half of whose
         # repositories are implemented, so with a required one unfinished it would loop
         # to its cycle limit and publish nothing. The review is still recorded above;

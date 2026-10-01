@@ -8,15 +8,16 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from pydantic import HttpUrl
+from pydantic import HttpUrl, ValidationError
 
 from adapters.llm_adapter import ImageInput, LLMResponse
 from agents.planner.feature_planner import DeterministicFeaturePlanner, FeaturePlannerAgent
 from agents.shared.contracts import AgentArtifactError
-from artifacts.schemas import Requirement, TechnicalPRDArtifact
+from artifacts.schemas import Requirement, TechnicalPRDArtifact, WorkstreamTaskDependency
 from prompts.prompt_loader import PromptLoader
-from state.enums import WorkstreamRole
-from state.feature_models import RepositorySpec
+from services.feature_runtime import _child_task_plan
+from state.enums import ChildWorkflowStatus, WorkstreamRole
+from state.feature_models import ChildWorkflowReference, RepositorySpec
 from tools.contract_tools import MockContractCodeGenerator
 
 
@@ -279,6 +280,175 @@ async def test_feature_planner_discards_model_proposed_serial_execution() -> Non
     assert plan.recommended_merge_order == ["backend", "frontend"]
 
 
+def _ordered_backend_workstream(task_dependencies: list[dict[str, Any]]) -> dict[str, Any]:
+    """A single-repository backend workstream declaring two tasks, for dependency tests."""
+    return _workstream(
+        workstream_id="backend",
+        repository_id="backend",
+        requirement_ids=["server-status-contract"],
+        scoped_requirements=[
+            {
+                "requirement_id": "server-status-contract",
+                "acceptance_criterion_ids": ["server-status-contract:ac-1"],
+                "responsibility": "implements",
+            }
+        ],
+        shared_requirements=[],
+        dependencies=[],
+        task_ids=["backend-schema", "backend-endpoint"],
+        responsibilities=["Add the status schema.", "Add the status endpoint."],
+        task_dependencies=task_dependencies,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_workstream_may_state_which_of_its_own_tasks_waits_for_another() -> None:
+    """A real, valid task dependency survives into the plan untouched."""
+    plan_payload = {
+        "workstreams": [
+            _ordered_backend_workstream(
+                [{"task_id": "backend-endpoint", "depends_on": ["backend-schema"]}]
+            )
+        ],
+        "execution_order": ["backend"],
+        "parallel_groups": [["backend"]],
+        "integration_test_plan": ["Exercise the shared API contract."],
+        "merge_strategy": "backend_first",
+        "deployment_strategy": "backend_first",
+        "feature_flag_strategy": [],
+        "rollback_strategy": ["Revert the feature."],
+    }
+    client = QueuedLLMClient([_planning_response(plan_payload)])
+    planner = FeaturePlannerAgent(
+        prompt_loader=PromptLoader(),
+        llm_client=client,
+        contract_generator=MockContractCodeGenerator(),
+        plan_task_dependencies=True,
+    )
+
+    _, _, plan = await planner.plan(
+        feature_id="feature-task-deps",
+        technical_prd=_technical_prd(),
+        repositories=[_repositories()[0]],
+    )
+
+    assert len(client.calls) == 1
+    backend = next(item for item in plan.workstreams if item.repository_id == "backend")
+    assert len(backend.task_dependencies) == 1
+    assert backend.task_dependencies[0].task_id == "backend-endpoint"
+    assert backend.task_dependencies[0].depends_on == ["backend-schema"]
+    assert plan.metadata["dropped_task_dependencies"] == {}
+
+
+@pytest.mark.asyncio
+async def test_a_task_dependency_on_a_task_that_does_not_exist_is_dropped() -> None:
+    """An edge naming a task this workstream never declared is a planning defect, not an outage."""
+    plan_payload = {
+        "workstreams": [
+            _ordered_backend_workstream(
+                [{"task_id": "backend-endpoint", "depends_on": ["backend-nothing"]}]
+            )
+        ],
+        "execution_order": ["backend"],
+        "parallel_groups": [["backend"]],
+        "integration_test_plan": ["Exercise the shared API contract."],
+        "merge_strategy": "backend_first",
+        "deployment_strategy": "backend_first",
+        "feature_flag_strategy": [],
+        "rollback_strategy": ["Revert the feature."],
+    }
+    client = QueuedLLMClient([_planning_response(plan_payload)])
+    planner = FeaturePlannerAgent(
+        prompt_loader=PromptLoader(),
+        llm_client=client,
+        contract_generator=MockContractCodeGenerator(),
+        plan_task_dependencies=True,
+    )
+
+    _, _, plan = await planner.plan(
+        feature_id="feature-task-deps-unknown",
+        technical_prd=_technical_prd(),
+        repositories=[_repositories()[0]],
+    )
+
+    assert len(client.calls) == 1
+    backend = next(item for item in plan.workstreams if item.repository_id == "backend")
+    assert backend.task_dependencies[0].depends_on == []
+    assert plan.metadata["dropped_task_dependencies"] == {
+        "backend": {"backend-endpoint": ["backend-nothing"]}
+    }
+
+
+@pytest.mark.asyncio
+async def test_tasks_that_wait_on_each_other_do_not_reach_a_plan() -> None:
+    """A cycle the model proposed is dropped to independence, not carried into the artifact."""
+    plan_payload = {
+        "workstreams": [
+            _ordered_backend_workstream(
+                [
+                    {"task_id": "backend-schema", "depends_on": ["backend-endpoint"]},
+                    {"task_id": "backend-endpoint", "depends_on": ["backend-schema"]},
+                ]
+            )
+        ],
+        "execution_order": ["backend"],
+        "parallel_groups": [["backend"]],
+        "integration_test_plan": ["Exercise the shared API contract."],
+        "merge_strategy": "backend_first",
+        "deployment_strategy": "backend_first",
+        "feature_flag_strategy": [],
+        "rollback_strategy": ["Revert the feature."],
+    }
+    client = QueuedLLMClient([_planning_response(plan_payload)])
+    planner = FeaturePlannerAgent(
+        prompt_loader=PromptLoader(),
+        llm_client=client,
+        contract_generator=MockContractCodeGenerator(),
+        plan_task_dependencies=True,
+    )
+
+    _, _, plan = await planner.plan(
+        feature_id="feature-task-deps-cycle",
+        technical_prd=_technical_prd(),
+        repositories=[_repositories()[0]],
+    )
+
+    assert len(client.calls) == 1
+    backend = next(item for item in plan.workstreams if item.repository_id == "backend")
+    assert all(item.depends_on == [] for item in backend.task_dependencies)
+    assert plan.metadata["dropped_task_dependencies"] == {
+        "backend": {"backend-schema": ["backend-endpoint"], "backend-endpoint": ["backend-schema"]}
+    }
+
+
+@pytest.mark.asyncio
+async def test_a_plan_that_states_no_task_ordering_is_the_plan_it_always_was() -> None:
+    """The untouched fixture: no task_dependencies key at all, exactly today's shape."""
+    shared_plan = _execution_plan(
+        frontend_reference={
+            "requirement_id": "server-status-contract",
+            "acceptance_criterion_ids": ["server-status-contract:ac-1"],
+            "responsibility": "implements",
+        }
+    )
+    client = QueuedLLMClient([_planning_response(shared_plan)])
+    planner = FeaturePlannerAgent(
+        prompt_loader=PromptLoader(),
+        llm_client=client,
+        contract_generator=MockContractCodeGenerator(),
+        plan_task_dependencies=True,
+    )
+
+    _, _, plan = await planner.plan(
+        feature_id="feature-plan-no-ordering",
+        technical_prd=_technical_prd(),
+        repositories=_repositories(),
+    )
+
+    assert all(item.task_dependencies == [] for item in plan.workstreams)
+    assert plan.metadata["dropped_task_dependencies"] == {}
+
+
 @pytest.mark.asyncio
 async def test_deterministic_feature_planner_does_not_invent_language_or_layout_areas() -> None:
     """Planning repository links before clone uses generic production evidence only."""
@@ -292,6 +462,135 @@ async def test_deterministic_feature_planner_does_not_invent_language_or_layout_
         # already running refers to is not a finished requirement.
         assert expectation.expected_change_categories == ["production", "test", "integration"]
         assert expectation.expected_source_areas == []
+
+
+def _child_workflow_reference(repository_id: str) -> ChildWorkflowReference:
+    """The minimal durable child record `_child_task_plan` needs -- every other field defaults."""
+    return ChildWorkflowReference(
+        child_workflow_id=f"feature-child-task-plan:{repository_id}",
+        repository_id=repository_id,
+        workstream_id=repository_id,
+        branch_name=f"ai/feature-child-task-plan/{repository_id}",
+        workspace_path=f"/tmp/{repository_id}",
+        status=ChildWorkflowStatus.RUNNING,
+        retry_count=0,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_task_plan_carries_the_ordering_its_workstream_declared() -> None:
+    """A real dependency graph, declared in the opposite order, still orders correctly."""
+    _, contract, plan = await DeterministicFeaturePlanner().plan(
+        feature_id="child-task-plan-ordered",
+        technical_prd=_technical_prd(),
+        repositories=[_repositories()[0]],
+    )
+    backend = plan.workstreams[0].model_copy(
+        update={
+            "task_ids": ["backend-endpoint", "backend-schema"],
+            "responsibilities": ["Add the status endpoint.", "Add the status schema."],
+            "task_dependencies": [
+                WorkstreamTaskDependency(task_id="backend-endpoint", depends_on=["backend-schema"])
+            ],
+        }
+    )
+
+    task_plan = _child_task_plan(
+        child=_child_workflow_reference("backend"),
+        technical_prd=_technical_prd(),
+        contract=contract,
+        workstream=backend,
+        feedback=[],
+    )
+
+    endpoint = next(item for item in task_plan.tasks if item.task_id == "backend-endpoint")
+    assert endpoint.dependencies == ["backend-schema"]
+    assert task_plan.implementation_order == ["backend-schema", "backend-endpoint"]
+
+
+@pytest.mark.asyncio
+async def test_a_workstream_that_declares_no_ordering_produces_the_task_plan_it_always_did() -> (
+    None
+):
+    """The regression lock: no `task_dependencies` produces exactly today's task plan."""
+    _, contract, plan = await DeterministicFeaturePlanner().plan(
+        feature_id="child-task-plan-unordered",
+        technical_prd=_technical_prd(),
+        repositories=[_repositories()[0]],
+    )
+    backend = plan.workstreams[0]
+
+    task_plan = _child_task_plan(
+        child=_child_workflow_reference("backend"),
+        technical_prd=_technical_prd(),
+        contract=contract,
+        workstream=backend,
+        feedback=[],
+    )
+
+    assert all(item.dependencies == [] for item in task_plan.tasks)
+    assert task_plan.implementation_order == backend.task_ids
+
+
+@pytest.mark.asyncio
+async def test_a_task_plan_refuses_tasks_that_wait_on_each_other() -> None:
+    """A cycle that reached this point (the planner's own normalization did not catch it)
+    is refused by `TaskPlanArtifact`'s own validator -- the backstop this design relies on."""
+    _, contract, plan = await DeterministicFeaturePlanner().plan(
+        feature_id="child-task-plan-cycle",
+        technical_prd=_technical_prd(),
+        repositories=[_repositories()[0]],
+    )
+    backend = plan.workstreams[0].model_copy(
+        update={
+            "task_ids": ["backend-a", "backend-b"],
+            "responsibilities": ["Do a.", "Do b."],
+            "task_dependencies": [
+                WorkstreamTaskDependency(task_id="backend-a", depends_on=["backend-b"]),
+                WorkstreamTaskDependency(task_id="backend-b", depends_on=["backend-a"]),
+            ],
+        }
+    )
+
+    with pytest.raises(ValidationError, match="must not contain a cycle"):
+        _child_task_plan(
+            child=_child_workflow_reference("backend"),
+            technical_prd=_technical_prd(),
+            contract=contract,
+            workstream=backend,
+            feedback=[],
+        )
+
+
+@pytest.mark.asyncio
+async def test_a_dependency_on_a_task_the_plan_could_not_build_is_left_out() -> None:
+    """More task_ids than responsibilities truncates the zip; a dependency on the casualty
+    is dropped rather than pointing the task plan at a task that was never built."""
+    _, contract, plan = await DeterministicFeaturePlanner().plan(
+        feature_id="child-task-plan-truncated",
+        technical_prd=_technical_prd(),
+        repositories=[_repositories()[0]],
+    )
+    backend = plan.workstreams[0].model_copy(
+        update={
+            "task_ids": ["backend-a", "backend-b", "backend-c"],
+            "responsibilities": ["Do a.", "Do b."],
+            "task_dependencies": [
+                WorkstreamTaskDependency(task_id="backend-a", depends_on=["backend-c"])
+            ],
+        }
+    )
+
+    task_plan = _child_task_plan(
+        child=_child_workflow_reference("backend"),
+        technical_prd=_technical_prd(),
+        contract=contract,
+        workstream=backend,
+        feedback=[],
+    )
+
+    assert [item.task_id for item in task_plan.tasks] == ["backend-a", "backend-b"]
+    assert next(item for item in task_plan.tasks if item.task_id == "backend-a").dependencies == []
 
 
 def _technical_prd() -> TechnicalPRDArtifact:
@@ -442,9 +741,19 @@ def _workstream(
     scoped_requirements: list[dict[str, str | list[str]]],
     shared_requirements: list[dict[str, str | list[str]]],
     dependencies: list[str],
+    task_ids: list[str] | None = None,
+    responsibilities: list[str] | None = None,
+    task_dependencies: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Return a schema-valid workstream with the supplied requirement references."""
-    return {
+    """Return a schema-valid workstream with the supplied requirement references.
+
+    ``task_ids``/``responsibilities``/``task_dependencies`` default to ``None`` so every
+    existing call site keeps its single-task, no-ordering shape byte for byte; passing
+    ``task_dependencies`` explicitly is the only way a test below exercises the field, and
+    passing nothing leaves the key out of the payload entirely -- the "model said nothing"
+    case, which is every real plan today.
+    """
+    payload: dict[str, Any] = {
         "workstream_id": workstream_id,
         "repository_id": repository_id,
         "role": repository_id,
@@ -452,8 +761,8 @@ def _workstream(
         "scoped_requirements": scoped_requirements,
         "out_of_scope_requirements": [],
         "shared_requirements": shared_requirements,
-        "responsibilities": [f"Deliver {repository_id} work."],
-        "task_ids": [f"{repository_id}-task"],
+        "responsibilities": responsibilities or [f"Deliver {repository_id} work."],
+        "task_ids": task_ids or [f"{repository_id}-task"],
         "dependency_workstream_ids": dependencies,
         "contract_sections_consumed": [],
         "contract_sections_implemented": [],
@@ -463,6 +772,9 @@ def _workstream(
         "expected_files_or_areas": [],
         "required": True,
     }
+    if task_dependencies is not None:
+        payload["task_dependencies"] = task_dependencies
+    return payload
 
 
 def _contract_section_plan(*, implemented: list[str], consumed: list[str]) -> dict[str, Any]:

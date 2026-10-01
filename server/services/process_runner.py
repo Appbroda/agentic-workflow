@@ -36,9 +36,11 @@ _EXPLICIT_ENVIRONMENT_KEYS = frozenset(
     {
         *_INHERITED_ENVIRONMENT_KEYS,
         *_REPOSITORY_OVERRIDE_KEYS,
-        # Set by `sanitized_subprocess_environment` for Corepack, so they have to be
-        # spellable here too -- this allowlist is a second, independent check at the spawn
-        # boundary, and a key the sanitizer sets but this rejects fails every subprocess.
+        # Set by `sanitized_subprocess_environment` for Corepack and Browserslist, so they
+        # have to be spellable here too -- this allowlist is a second, independent check at
+        # the spawn boundary, and a key the sanitizer sets but this rejects fails every
+        # subprocess.
+        "BROWSERSLIST_IGNORE_OLD_DATA",
         "COREPACK_ENABLE_AUTO_PIN",
         "COREPACK_ENABLE_DOWNLOAD_PROMPT",
         "GIT_ASKPASS",
@@ -459,6 +461,18 @@ def sanitized_subprocess_environment() -> dict[str, str]:
             # would land in the diff, in the review, and in the pull request.
             "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
             "COREPACK_ENABLE_AUTO_PIN": "0",
+            # `browserslist` (pulled in by webpack, babel-preset-env, postcss, react-scripts,
+            # and jest) checks its bundled `caniuse-lite` release date on every run and warns
+            # to stderr once that data is more than a few months old -- "Browserslist:
+            # caniuse-lite is outdated. Please run: npx browserslist@latest --update-db." It
+            # is a reminder about the *installed dependency's* own age, not a finding about
+            # this feature's change, and the platform never runs an interactive `npx` update
+            # on a repository's behalf -- so every repository whose lockfile predates this
+            # check by a few months would show it on every install/lint/test/build,
+            # indefinitely, regardless of which feature is running. This is the environment
+            # variable `browserslist` itself documents for suppressing exactly that check; it
+            # does not change which browsers are targeted or anything else about the build.
+            "BROWSERSLIST_IGNORE_OLD_DATA": "1",
         }
     )
     return environment
