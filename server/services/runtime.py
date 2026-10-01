@@ -15,9 +15,9 @@ from urllib.parse import urlsplit, urlunsplit
 from adapters.git_adapter import GitService
 from adapters.llm_adapter import LLMClient
 from agents.product_manager.agent import AttachmentContentSource
-from agents.reviewer.agent import ReviewerAgent
+from agents.reviewer.agent import ReviewerAgent, review_evidence_budget
 from artifacts.schemas import CodeCompletionArtifact
-from configs.model_roles import ModelRole
+from configs.model_roles import ModelRole, normalize_context_window_tokens
 from configs.settings import Settings
 from prompts.prompt_loader import PromptLoader
 from services.cancellation import CancellationToken
@@ -149,6 +149,15 @@ class ProductionReviewer:
             model_role=self._model_role,
             bounded_review_scope=self._settings.bounded_review_scope,
             settled_questions=self._settled_questions,
+            # Derived from the routed model's declared context window, the same way
+            # `repository_snapshot_budget` derives the Engineer's snapshot budget (61- law: no
+            # second budget arithmetic exists anywhere downstream). `llm_client.model` is not
+            # part of the `LLMClient` protocol -- a test double may not carry it -- so absence
+            # falls back to the reviewer's own default budget exactly as before.
+            evidence_budget=review_evidence_budget(
+                getattr(self._llm_client, "model", None),
+                normalize_context_window_tokens(self._settings.declared_context_window_tokens()),
+            ),
         ).run(state)
 
 

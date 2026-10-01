@@ -297,6 +297,66 @@ async def test_a_seam_module_past_the_budget_is_dropped_whole_and_declared(
     assert _NODE_PACKAGE in finding.description
 
 
+async def test_a_seam_module_omitted_twice_is_summarized_not_dropped_a_third_time(
+    tmp_path: Path,
+) -> None:
+    """A budget limitation that cannot resolve itself by retrying is not repeated forever.
+
+    `service.util.js` (29,259 bytes) and `CreateBatch.js` (48,517 bytes) each stayed over the
+    per-file bound on every one of several real attempts -- omitting either was never going to
+    become possible by asking again. The second consecutive omission for the same path
+    escalates to `configuration_calls` instead: not a trim of the file (51-A still forbids
+    that), but the already-computed fact of which lines make it the seam at all.
+    """
+    (tmp_path / "src" / "api").mkdir(parents=True)
+    filler = "\n".join(f"export const row{index:05d} = '{index:0>40}';" for index in range(500))
+    (tmp_path / _CONFIG_MODULE).write_text(
+        f"import client from '{_NODE_PACKAGE}';\n"
+        f"// {_CONFIG_MARKER}\n"
+        "export const configured = client.create({ baseURL: '/internal' });\n"
+        f"{filler}\n",
+        encoding="utf-8",
+    )
+    completion = (
+        await EngineerAgent(
+            prompt_loader=PromptLoader(),
+            coding_executor=MockCodingExecutor(
+                file_updates={"src/features/upload.js": _bare_import_source()}
+            ),
+        ).run(agent_state(tmp_path, [task_plan_artifact()]))
+    )["artifacts"][0]
+    client = StaticLLMClient(domain_payload(review_artifact()))
+    # A prior review that already omitted this same path for the same reason -- the fixture
+    # for "this is the second consecutive time", read back by `_previously_omitted_seam_paths`.
+    prior_review = review_artifact().model_copy(
+        update={
+            "metadata": {
+                "seam_evidence_budget_omitted_paths": [_CONFIG_MODULE],
+            }
+        }
+    )
+
+    update = await _reviewer(client).run(
+        agent_state(
+            tmp_path,
+            [technical_prd_artifact(), task_plan_artifact(), completion, prior_review],
+        )
+    )
+
+    evidence = json.loads(client.calls[0][1])["workspace_change_evidence"]
+    # Not omitted a second time: the seam limitation does not fire, because something was
+    # shown this round.
+    assert "seam_context_omitted" not in evidence["limitations"]
+    assert evidence["channel_seam"]["omitted"] == []
+    summary_entry = next(item for item in evidence["files"] if item["path"] == _CONFIG_MODULE)
+    assert summary_entry["content_kind"] == "channel_seam_summary"
+    # The narrow fact, not the file: the configuring call is present, the filler is not.
+    assert "client.create" in summary_entry["content"]
+    assert _CONFIG_MARKER not in summary_entry["content"]
+    review = update["artifacts"][0]
+    assert review.metadata["seam_evidence_budget_omitted_paths"] == [_CONFIG_MODULE]
+
+
 # --------------------------------------------------------------------------------------
 # T4 -- the detector truth table
 # --------------------------------------------------------------------------------------

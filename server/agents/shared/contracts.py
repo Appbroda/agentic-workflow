@@ -155,6 +155,29 @@ def artifact_id_matches_lineage(candidate: str, base_artifact_id: str) -> bool:
     return False
 
 
+def attempt_number_from_qualified_id(candidate: str) -> int | None:
+    """Extract the trailing attempt number from an artifact ID, repository-qualified or not.
+
+    ``_with_attempt_identity`` (``workflows/feature_workflow.py``) rewrites a freshly-produced
+    artifact's ID to ``{stem}.{repository_id}.attempt-{N}.json`` before folding it into the
+    feature's own live state -- a shape ``artifact_id_matches_lineage`` does not accept, so a
+    caller that needs to rename such an artifact back to its plain, child-scoped form (as
+    ``_prior_child_completions`` already does for code completions) first needs the number back
+    out. Finds the last ``.attempt-`` segment rather than assuming a fixed prefix, so it works
+    whether or not a repository qualifier is present. Returns ``None`` for anything that does
+    not end in exactly ``.attempt-<digits>.json``.
+    """
+    if not candidate.endswith(".json"):
+        return None
+    stem = candidate[: -len(".json")]
+    marker = "attempt-"
+    index = stem.rfind(f".{marker}")
+    if index == -1:
+        return None
+    number = stem[index + 1 + len(marker) :]
+    return int(number) if number.isdigit() and str(int(number)) == number else None
+
+
 class AgentArtifactError(ValueError):
     """Raised when an agent cannot consume or produce a valid workflow artifact.
 

@@ -23,6 +23,7 @@ source is always on the record (T9).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -30,10 +31,15 @@ from typing import Any
 import pytest
 from pydantic import HttpUrl
 
-from agents.shared.contracts import create_artifact
-from artifacts.schemas import CodeCompletionArtifact, RepositoryWorkstreamPlan
+from agents.shared.contracts import (
+    ARTIFACT_FILENAMES,
+    artifact_id_matches_lineage,
+    create_artifact,
+)
+from artifacts.schemas import CodeCompletionArtifact, RepositoryWorkstreamPlan, ReviewArtifact
 from services.cancellation import MockCancellationToken
 from services.feature_runtime import (
+    _previous_child_review,
     _prior_child_completions,
     _prior_child_completions_including_published,
 )
@@ -127,6 +133,59 @@ def test_the_published_completion_holding_the_tests_is_only_visible_to_the_new_r
         item.metadata["child_attempt"]
         for item in _prior_child_completions_including_published(feature, child)
     ] == [0, 1]
+
+
+def test_a_prior_review_is_renamed_back_to_child_scoped_lineage_before_the_next_attempt() -> None:
+    """Root cause of Fix 5 (seam-evidence escalation) never firing in production.
+
+    Parent persistence namespaces a review by repository -- `_with_attempt_identity`
+    (`workflows/feature_workflow.py`) -- exactly as it does a code completion, but nothing
+    renamed it back before `_previous_child_review` handed it to the next attempt. The
+    reviewer's own lineage matcher, `artifact_id_matches_lineage`, then rejected every prior
+    review on every attempt after the first, for every repository, on every feature this
+    platform has ever run -- confirmed directly against AB-Feature-171's own persisted
+    artifacts, whose real `artifact_id` is exactly the qualified shape built here.
+    """
+    feature = _feature(
+        [_persisted_review(attempt=0, omitted_path="server/utils/service.util.js")]
+    )
+
+    renamed = _previous_child_review(feature, "feature-66:frontend")
+
+    assert renamed is not None
+    assert artifact_id_matches_lineage(renamed.artifact_id, ARTIFACT_FILENAMES["review"])
+    assert renamed.metadata["seam_evidence_budget_omitted_paths"] == [
+        "server/utils/service.util.js"
+    ]
+
+
+def test_a_prior_review_with_no_parseable_attempt_number_is_still_returned_unrenamed() -> None:
+    """A malformed or already-plain id degrades to returning the artifact as-is, never a crash."""
+    feature = _feature(
+        [
+            create_artifact(
+                ReviewArtifact,
+                workflow_id="feature-66:frontend",
+                artifact_id="007_review.json",
+                producer="reviewer",
+                metadata={},
+                payload={
+                    "verdict": "changes_requested",
+                    "summary": "First attempt, no attempt suffix at all.",
+                    "requirement_checks": [],
+                    "findings": [],
+                    "architecture_assessment": "Not assessed.",
+                    "security_assessment": "Not assessed.",
+                    "test_coverage_assessment": "Not assessed.",
+                },
+            )
+        ]
+    )
+
+    renamed = _previous_child_review(feature, "feature-66:frontend")
+
+    assert renamed is not None
+    assert renamed.artifact_id == "007_review.json"
 
 
 def test_a_first_attempt_without_tests_still_fails_with_the_same_sentence() -> None:
@@ -564,7 +623,41 @@ def _persisted_completion(
     )
 
 
-def _feature(artifacts: list[CodeCompletionArtifact]) -> FeatureWorkflowSnapshot:
+def _persisted_review(
+    *,
+    attempt: int,
+    omitted_path: str,
+    workflow_id: str = "feature-66:frontend",
+    repository: str = "frontend",
+) -> ReviewArtifact:
+    """A prior attempt's review, shaped the way parent persistence records one.
+
+    `_with_attempt_identity` (`workflows/feature_workflow.py`) rewrites the reviewer's own
+    plain `007_review.attempt-N.json` id to this repository-qualified form before folding it
+    into the feature's own live state -- the exact shape confirmed directly against a real
+    deployment's persisted artifacts (AB-Feature-171).
+    """
+    return create_artifact(
+        ReviewArtifact,
+        workflow_id=workflow_id,
+        artifact_id=f"007_review.{repository}.attempt-{attempt}.json",
+        producer="reviewer",
+        metadata={"seam_evidence_budget_omitted_paths": [omitted_path]},
+        payload={
+            "verdict": "changes_requested",
+            "summary": "Blocked on an evidence-budget omission.",
+            "requirement_checks": [],
+            "findings": [],
+            "architecture_assessment": "Not assessed.",
+            "security_assessment": "Not assessed.",
+            "test_coverage_assessment": "Not assessed.",
+        },
+    )
+
+
+def _feature(
+    artifacts: Sequence[CodeCompletionArtifact | ReviewArtifact],
+) -> FeatureWorkflowSnapshot:
     """The parent snapshot, carrying only what a lineage reader looks at."""
     return FeatureWorkflowSnapshot.model_validate(
         {

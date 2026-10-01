@@ -43,6 +43,7 @@ from agents.shared.contracts import (
     ARTIFACT_FILENAMES,
     AgentArtifactError,
     attempt_artifact_id,
+    attempt_number_from_qualified_id,
     create_artifact,
     safe_error_diagnostics,
 )
@@ -4223,10 +4224,24 @@ def _prior_child_completions_including_published(
 def _previous_child_review(
     feature: FeatureWorkflowSnapshot, child_workflow_id: str
 ) -> ReviewArtifact | None:
-    """Find only the prior review belonging to this child, never a sibling review artifact."""
+    """Find only the prior review belonging to this child, renamed for child-scoped lineage.
+
+    Parent persistence namespaces a review by repository, exactly as it does a code completion
+    -- `_prior_child_completions`'s own docstring names this -- which the child-scoped lineage
+    matcher (`artifact_id_matches_lineage`, read by `_prior_reviews` in the reviewer agent)
+    deliberately does not accept. Without renaming it back, the reviewer's own escalation and
+    prior-findings mechanisms always see zero prior reviews for every repository, on every
+    attempt after the first -- confirmed the root cause of Fix 5 (seam-evidence escalation)
+    never firing in production. Mirrors the rename `_prior_child_completions` already performs.
+    """
     for artifact in reversed(feature.artifacts):
         if isinstance(artifact, ReviewArtifact) and artifact.workflow_id == child_workflow_id:
-            return artifact
+            attempt = attempt_number_from_qualified_id(artifact.artifact_id)
+            if attempt is None:
+                return artifact
+            return artifact.model_copy(
+                update={"artifact_id": attempt_artifact_id(ARTIFACT_FILENAMES["review"], attempt)}
+            )
     return None
 
 

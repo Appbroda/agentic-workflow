@@ -7,7 +7,8 @@ import inspect
 import json
 import re
 from base64 import b64encode
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Any, cast
 
@@ -69,7 +70,7 @@ from tools.acceptance_criteria import (
     requires_deployed_measurement,
     unverifiable_criteria,
 )
-from tools.channel_packages import channel_seam_scan
+from tools.channel_packages import SeamCoImporter, channel_seam_scan
 from tools.dependency_sync import generated_lockfile_manifest
 from tools.file_tools import (
     DEFAULT_MAX_FILE_BYTES,
@@ -109,6 +110,80 @@ _REVIEW_EVIDENCE_MAX_CHARACTERS = 128_000
 # thing the next attempt can act on rather than a reason to stop. But a limit that a
 # straightforward React modal exceeds by 346 characters is simply set too low.
 _REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS = 24_000
+
+# The constants above are the DEFAULT evidence budget: what a review runs under when the
+# deployment has not declared the routed model's context window. Mirrors
+# `agents.engineer.agent.repository_snapshot_budget` -- the same reasoning applies here as
+# there: a table of hand-tuned constants must be corrected by hand every time a workload or a
+# model changes (this file's own per-file constant was already raised once, from 16,000, after
+# AB-Feature-168), while a budget derived from the routed model's declared context window
+# corrects itself. The share and ratio below are chosen so that a declared 200,000-token
+# window -- the current-generation size these constants were tuned against -- derives exactly
+# the two constants above, which is the identity property a test pins: a deployment that
+# declares nothing behaves byte-identically to one that declares the size already in use.
+_EVIDENCE_WINDOW_TOKEN_SHARE = 0.16
+_EVIDENCE_CHARACTERS_PER_TOKEN = 4
+_EVIDENCE_PER_FILE_SHARE_OF_MAX = (
+    _REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS / _REVIEW_EVIDENCE_MAX_CHARACTERS
+)
+
+
+@dataclass(frozen=True, slots=True)
+class ReviewEvidenceBudget:
+    """The character budget one review's workspace evidence ran under, and its origin.
+
+    ``seam_reserved_characters`` is what the channel-seam scan (the unchanged modules that
+    co-import a package the change imports) is guaranteed even when changed-file evidence has
+    already claimed the rest of ``max_characters``. Without a reserved floor, a change whose
+    own diff is merely large -- not any larger than usual -- can starve seam evidence to zero
+    before a single co-importer is considered, which is indistinguishable from a change that
+    never touched a shared client at all. One file's worth is the floor: enough to show the
+    single most relevant co-importer (the ranking in `channel_seam_scan` already puts the
+    actual configuration module first), which is a strictly better position than showing none.
+
+    ``source`` is ``"declared:<model>:<window>"`` when the deployment declared the routed
+    model's context window, and ``"default"`` otherwise -- recorded on the completion for the
+    same forensic reason `RepositorySnapshotBudget.source` is.
+    """
+
+    max_characters: int
+    per_file_max_characters: int
+    seam_reserved_characters: int
+    source: str
+
+
+def review_evidence_budget(
+    model: str | None, declared_windows: Mapping[str, int]
+) -> ReviewEvidenceBudget:
+    """Derive the review evidence budget from the routed model's declared context window.
+
+    Same shape as `agents.engineer.agent.repository_snapshot_budget`, deliberately: the
+    reviewer's evidence assembly is a second, independent place a hardcoded budget goes stale
+    exactly the way the engineer's snapshot budget already stopped being allowed to. An
+    undeclared model falls back to `_DEFAULT_REVIEW_EVIDENCE_BUDGET`, byte-identical to this
+    file's behaviour before this function existed -- absence of a declaration is never a
+    punishment.
+    """
+    window = declared_windows.get(model) if model else None
+    if window is None or window <= 0:
+        return _DEFAULT_REVIEW_EVIDENCE_BUDGET
+    max_characters = int(window * _EVIDENCE_WINDOW_TOKEN_SHARE * _EVIDENCE_CHARACTERS_PER_TOKEN)
+    per_file_max_characters = int(max_characters * _EVIDENCE_PER_FILE_SHARE_OF_MAX)
+    return ReviewEvidenceBudget(
+        max_characters=max_characters,
+        per_file_max_characters=per_file_max_characters,
+        seam_reserved_characters=per_file_max_characters,
+        source=f"declared:{model}:{window}",
+    )
+
+
+_DEFAULT_REVIEW_EVIDENCE_BUDGET = ReviewEvidenceBudget(
+    max_characters=_REVIEW_EVIDENCE_MAX_CHARACTERS,
+    per_file_max_characters=_REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS,
+    seam_reserved_characters=_REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS,
+    source="default",
+)
+
 # Which limitations are somebody's decision to make, and which are only this platform's own
 # bounds. Redaction and a never-publish path mean the review deliberately did not look at
 # something, and no number of retries changes that -- a person has to decide.
@@ -218,6 +293,10 @@ class ReviewerAgent:
         # implementation looks like the picture; one holding the picture can. Optional: a
         # composition without it judges from text exactly as before.
         attachments: AttachmentContentSource | None = None,
+        # Derived from the routed model's declared context window where the caller has one to
+        # derive it from (`review_evidence_budget`); `None` keeps this agent's original,
+        # constant-budget behaviour exactly, byte for byte.
+        evidence_budget: ReviewEvidenceBudget | None = None,
     ) -> None:
         """Inject versioned prompting, model assessment, and workspace validation tools."""
         self._prompt_loader = prompt_loader
@@ -235,6 +314,7 @@ class ReviewerAgent:
             if item.verdict == "removal_holds"
         ]
         self._attachments = attachments
+        self._evidence_budget = evidence_budget or _DEFAULT_REVIEW_EVIDENCE_BUDGET
 
     async def _design_pictures(self, design: dict[str, Any] | None) -> tuple[ImageInput, ...]:
         """Fetch the frames this review judges against, as pictures.
@@ -327,6 +407,12 @@ class ReviewerAgent:
             # The workstream's declared scope, so the evidence can say which of the change's
             # paths it never named (87- Part C).
             expected_files_or_areas=review_scope.get("expected_files_or_areas") or (),
+            evidence_budget=self._evidence_budget,
+            # The most recent prior review's own record of which seam files its evidence
+            # budget already omitted, so a second consecutive omission of the *same* file can
+            # be told from the first: a budget limitation this platform cannot resolve by
+            # retrying identically is not the same thing as a fresh one worth stating plainly.
+            previously_omitted_seam_paths=_previously_omitted_seam_paths(prior_reviews),
         )
         # What the platform will actually execute here. The review has always been given the
         # results and never the plan, so it could see that a command produced no result and
@@ -408,7 +494,9 @@ class ReviewerAgent:
                 changed_test_paths=_completion_test_paths(code_completion),
                 planned_commands=planned_commands,
             )
-            _apply_workspace_evidence_findings(payload, workspace_evidence)
+            _apply_workspace_evidence_findings(
+                payload, workspace_evidence, evidence_budget=self._evidence_budget
+            )
             _apply_unreviewable_criteria_findings(payload, withheld_criteria)
             # Recorded unconditionally, not only under the bounded scope that first needed
             # it: the 73- demotion reads this to refuse to overrule a measurement, and a
@@ -475,6 +563,16 @@ class ReviewerAgent:
                         "seam_configuration_unlocated"
                     ],
                     "seam_context_omitted": workspace_evidence["seam_omitted"],
+                    # Plain paths, read back by `_previously_omitted_seam_paths` on the
+                    # *next* attempt so a second consecutive omission of the same file can be
+                    # told from a first one. Includes this round's summarized paths as well as
+                    # its whole omissions: once a path has been flagged either way, it stays
+                    # on the summary path on every later attempt rather than oscillating back
+                    # to a whole omission the one attempt it happens to fit again.
+                    "seam_evidence_budget_omitted_paths": [
+                        item["path"] for item in workspace_evidence["seam_omitted"]
+                    ]
+                    + [item["path"] for item in workspace_evidence["seam_summarized"]],
                     # What the reviewer was asked about that the workstream never declared
                     # (87- Part C). Durable because the question is only worth asking if
                     # somebody can later check whether it was answered: 218's frontend
@@ -1143,6 +1241,8 @@ async def _workspace_change_evidence(
     process_runner: ProcessRunner,
     cancellation_token: CancellationToken,
     expected_files_or_areas: Sequence[str] = (),
+    evidence_budget: ReviewEvidenceBudget = _DEFAULT_REVIEW_EVIDENCE_BUDGET,
+    previously_omitted_seam_paths: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Capture bounded current source for every uncommitted attempt in this workspace.
 
@@ -1305,12 +1405,13 @@ async def _workspace_change_evidence(
             limitations.append("sensitive_content")
             model_files.append(entry)
             continue
-        remaining = max(0, _REVIEW_EVIDENCE_MAX_CHARACTERS - characters_used)
+        remaining = max(0, evidence_budget.max_characters - characters_used)
         evidence = await _bounded_file_evidence(
             workspace=workspace,
             relative_path=relative_path,
             source=source,
             remaining_characters=remaining,
+            per_file_max_characters=evidence_budget.per_file_max_characters,
             baseline=baseline,
             process_runner=process_runner,
             cancellation_token=cancellation_token,
@@ -1343,14 +1444,23 @@ async def _workspace_change_evidence(
 
     # The seam the change stands on: every repository module that imports a channel package
     # the changed sources import, shown under the unchanged-source banner. Changed files kept
-    # first claim on the budget above; seam context takes only what remains, and a seam file
-    # that does not fit is omitted whole and declared -- never trimmed (the 51-A rule).
+    # first claim on the budget above; seam context takes what remains, floored at
+    # `seam_reserved_characters` so a change whose own diff is merely large cannot starve seam
+    # evidence to zero before a single co-importer is even considered -- indistinguishable,
+    # from the reviewer's side, from a change that never touched a shared client at all. A
+    # seam file that still does not fit the (possibly reserved) remainder is omitted whole and
+    # declared -- never trimmed (the 51-A rule).
     seam = _channel_seam_evidence(
         workspace=workspace,
         file_tools=file_tools,
         changed_sources=changed_sources,
         reviewed_paths=reviewed_paths,
-        remaining_characters=max(0, _REVIEW_EVIDENCE_MAX_CHARACTERS - characters_used),
+        remaining_characters=max(
+            evidence_budget.seam_reserved_characters,
+            evidence_budget.max_characters - characters_used,
+        ),
+        per_file_max_characters=evidence_budget.per_file_max_characters,
+        previously_omitted_seam_paths=previously_omitted_seam_paths,
     )
     model_files.extend(seam["entries"])
     if seam["budget_omitted"]:
@@ -1459,6 +1569,13 @@ async def _workspace_change_evidence(
         "seam_configuration_paths": seam["configuration_paths"],
         "seam_configuration_unlocated": seam["configuration_unlocated"],
         "seam_omitted": seam["budget_omitted"],
+        # Paths this round escalated to a summary rather than a whole omission (see
+        # `_channel_seam_evidence`'s escalation). Persisted alongside `seam_omitted` so the
+        # *next* attempt's `_previously_omitted_seam_paths` treats a summarized path the same
+        # as a still-omitted one: once a file has been flagged this way, it stays on the
+        # summary path on every later attempt too, rather than oscillating back to a whole
+        # omission the one attempt it happens to fit the ordinary check again.
+        "seam_summarized": seam["summarized"],
         "seam_mock_notes": mock_notes,
         # 87- Part C's two lists, for the prompt clause and for the durable record: a review
         # that was asked about an undeclared path should be answerable about it afterwards.
@@ -1656,6 +1773,13 @@ def _channel_seam_evidence(
     changed_sources: Sequence[tuple[str, str]],
     reviewed_paths: Sequence[str],
     remaining_characters: int,
+    per_file_max_characters: int = _REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS,
+    # Seam files the immediately preceding review's own evidence budget already omitted
+    # whole. A first omission is the ordinary case the budget law below still governs; a
+    # second consecutive one for the same path cannot be resolved by omitting it a third
+    # time, because nothing about the file or the budget changes between attempts on that
+    # account alone -- see the escalation carved out of that law just below.
+    previously_omitted_seam_paths: frozenset[str] = frozenset(),
 ) -> dict[str, Any]:
     """Quote the unchanged modules that co-import a channel package this change imports.
 
@@ -1672,13 +1796,26 @@ def _channel_seam_evidence(
     ``reviewed_paths`` -- committed attempts included, per 51-A -- and is excluded here, so
     the unchanged-source banner is a fact and not a guess.
 
-    Budget law (51-A, unchanged): a seam file that does not fit what remains of the review
-    budget, or exceeds the per-file bound, is omitted whole and declared with the seam
-    limitation -- never trimmed, because a reviewer shown half a configuration would attest
-    to a seam it half-read. Sensitive, unreadable and key-material seam files are omitted and
-    named without raising any limitation: the file is unchanged, so whatever it carries was
-    committed long before this change, which is exactly the judgement
-    `_redaction_is_preexisting` already encodes for changed files.
+    Budget law (51-A): a seam file that does not fit what remains of the review budget, or
+    exceeds the per-file bound, is omitted whole and declared with the seam limitation --
+    never trimmed, because a reviewer shown half a configuration would attest to a seam it
+    half-read. Sensitive, unreadable and key-material seam files are omitted and named without
+    raising any limitation: the file is unchanged, so whatever it carries was committed long
+    before this change, which is exactly the judgement `_redaction_is_preexisting` already
+    encodes for changed files.
+
+    Escalation, carved out of 51-A rather than replacing it: a file this same reason has
+    already omitted once cannot be waited out -- a repository whose real shared-client module
+    is simply larger than the per-file bound stays larger than it on every future attempt, and
+    51-A applied to that case forever is what burned two live workstreams through their whole
+    review-cycle budget on one unmoving sentence (`service.util.js` at 29,259 bytes,
+    `CreateBatch.js` at 48,517 bytes -- both comfortably over the 24,000-character default).
+    On the *second* consecutive omission for the same path, quote `configuration_calls`
+    instead of the whole file: not a trim of the seam file's own content (51-A still forbids
+    that), but the narrower, already-computed fact of *which lines make this module the seam
+    at all*. A co-importer with no located configuration call has nothing this substitutes
+    for and keeps the ordinary whole-omission path -- summarizing nothing would misrepresent
+    the file as reviewed.
     """
 
     def read(path: str) -> str | None:
@@ -1696,6 +1833,7 @@ def _channel_seam_evidence(
     seam_paths: list[str] = []
     configuration_paths: list[str] = []
     omitted: list[dict[str, Any]] = []
+    summarized: list[dict[str, Any]] = []
 
     def omit(path: str, packages: Sequence[str], reason: str) -> None:
         omitted.append({"path": path, "channel_packages": list(packages), "reason": reason})
@@ -1714,7 +1852,28 @@ def _channel_seam_evidence(
             continue
         redacted = redact_source_credentials(source)
         content = f"{_unchanged_source_banner(item.path)}\n{redacted}"
-        if len(content) > _REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS or len(content) > budget:
+        if len(content) > per_file_max_characters or len(content) > budget:
+            if item.path in previously_omitted_seam_paths and item.configuration_calls:
+                summary_content = _channel_seam_summary_content(item)
+                if len(summary_content) <= budget:
+                    entries.append(
+                        {
+                            "path": item.path,
+                            "content_kind": "channel_seam_summary",
+                            "channel_packages": list(item.channel_packages),
+                            "configuration_calls": list(item.configuration_calls),
+                            "content": summary_content,
+                            "sha256": hashlib.sha256(redacted.encode("utf-8")).hexdigest(),
+                            "redacted": False,
+                        }
+                    )
+                    seam_paths.append(item.path)
+                    configuration_paths.append(item.path)
+                    summarized.append(
+                        {"path": item.path, "channel_packages": list(item.channel_packages)}
+                    )
+                    budget -= len(summary_content)
+                    continue
             omit(item.path, item.channel_packages, "evidence_budget")
             continue
         entries.append(
@@ -1752,6 +1911,12 @@ def _channel_seam_evidence(
         # Only the budget omissions raise `seam_context_omitted`: they are the platform's own
         # bound, and the finding tells the next attempt which file and package it means.
         "budget_omitted": [item for item in omitted if item["reason"] == "evidence_budget"],
+        # Paths shown as a summary this round because a prior attempt already omitted them
+        # whole for the same reason. Deliberately not in `omitted`/`budget_omitted`: a
+        # summarized path was shown something, so it does not raise `seam_context_omitted`
+        # again -- the whole point of the escalation is to stop repeating a limitation the
+        # next attempt cannot do anything about.
+        "summarized": summarized,
     }
 
 
@@ -1973,6 +2138,7 @@ async def _bounded_file_evidence(
     baseline: LineageBaseRevision,
     process_runner: ProcessRunner,
     cancellation_token: CancellationToken,
+    per_file_max_characters: int = _REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS,
 ) -> dict[str, Any]:
     """Prefer a complete source file, then this change's own hunks, else mark it truncated.
 
@@ -1989,7 +2155,7 @@ async def _bounded_file_evidence(
     measured against the baseline the review is actually attesting. Selection scales where a
     cap does not: a late file in a large change still gets its hunks, because hunks are small.
     """
-    budget = min(_REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS, remaining_characters)
+    budget = min(per_file_max_characters, remaining_characters)
     redacted_source = redact_source_credentials(source) if source is not None else None
     source_redacted = source is not None and redacted_source != source
     evidence_sha256 = (
@@ -2047,6 +2213,25 @@ def _unchanged_source_banner(relative_path: str) -> str:
     must find the same bytes in both places.
     """
     return f"===== {relative_path}: unchanged from the revision this change branched from ====="
+
+
+def _channel_seam_summary_content(item: SeamCoImporter) -> str:
+    """Quote only what makes this co-importer the seam, once its whole file has proved too big.
+
+    Never a trim of arbitrary source -- 51-A still forbids that, because a reviewer shown half
+    a configuration would attest to a seam it half-read. This quotes a different, narrower
+    fact instead: `configuration_calls` is `channel_seam_scan`'s own record of the exact lines
+    that establish this module as the seam, computed the same way whether the file fits the
+    budget or not. Reusing it here is what keeps the escalation honest about what it is -- a
+    named, partial fact about an oversized file, not a disguised whole-file read.
+    """
+    banner = (
+        f"===== {item.path}: unchanged from the revision this change branched from -- "
+        "this file exceeded the review's evidence budget on a prior attempt, so only its "
+        "channel-configuring call sites are quoted below, not the whole file ====="
+    )
+    calls = "\n".join(item.configuration_calls)
+    return f"{banner}\n{calls}"
 
 
 async def _changed_region_evidence(
@@ -2428,7 +2613,10 @@ def _rejection_contradiction(review: ReviewArtifact) -> str | None:
 
 
 def _apply_workspace_evidence_findings(
-    review_payload: dict[str, Any], workspace_evidence: dict[str, Any]
+    review_payload: dict[str, Any],
+    workspace_evidence: dict[str, Any],
+    *,
+    evidence_budget: ReviewEvidenceBudget = _DEFAULT_REVIEW_EVIDENCE_BUDGET,
 ) -> None:
     """Forbid approval when source had to be hidden or truncated for model safety."""
     limitations = workspace_evidence["limitations"]
@@ -2469,6 +2657,7 @@ def _apply_workspace_evidence_findings(
                 unshown=unshown,
                 seam_omitted=seam_omitted,
                 manual_review_required=manual_review_required,
+                evidence_budget=evidence_budget,
             ),
             recommendation=_evidence_limitation_recommendation(
                 oversized=oversized,
@@ -2571,6 +2760,7 @@ def _evidence_limitation_description(
     unshown: Sequence[dict[str, Any]],
     seam_omitted: Sequence[dict[str, Any]] = (),
     manual_review_required: bool,
+    evidence_budget: ReviewEvidenceBudget = _DEFAULT_REVIEW_EVIDENCE_BUDGET,
 ) -> str:
     """Say what the review could not see, in terms of the change rather than of the file.
 
@@ -2601,7 +2791,7 @@ def _evidence_limitation_description(
         parts.append(
             "The review below did not see every changed line. These changed regions are each "
             f"larger than what remained of the "
-            f"{_REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS:,}-character per-file evidence budget, "
+            f"{evidence_budget.per_file_max_characters:,}-character per-file evidence budget, "
             f"so they were not quoted: {named}{more}."
         )
     elif oversized:
@@ -2610,7 +2800,7 @@ def _evidence_limitation_description(
         parts.append(
             "The review below did not see every changed line in these files, and this "
             "repository could not report where their changes are, so the reviewer was shown "
-            f"only as much of each as the {_REVIEW_EVIDENCE_PER_FILE_MAX_CHARACTERS:,}-character"
+            f"only as much of each as the {evidence_budget.per_file_max_characters:,}-character"
             f" per-file evidence budget holds: {named}{more}."
         )
     if seam_omitted:
@@ -3486,6 +3676,23 @@ def _prior_reviews(state: AgentState) -> list[ReviewArtifact]:
         if isinstance(artifact, ReviewArtifact)
         and artifact_id_matches_lineage(artifact.artifact_id, ARTIFACT_FILENAMES["review"])
     ]
+
+
+def _previously_omitted_seam_paths(prior_reviews: Sequence[ReviewArtifact]) -> frozenset[str]:
+    """Which unchanged seam files the immediately preceding review's own budget omitted whole.
+
+    Read from the most recent review only, not every prior one: a file the budget could not
+    show two rounds ago but showed last round is not a repeat, and treating it as one would
+    escalate a limitation that already stopped recurring. `None` metadata (every review
+    written before this existed) reads as "nothing recorded," the same answer a first attempt
+    gives -- absence of the record is never treated as a repeat.
+    """
+    if not prior_reviews:
+        return frozenset()
+    recorded = prior_reviews[-1].metadata.get("seam_evidence_budget_omitted_paths")
+    if not isinstance(recorded, list):
+        return frozenset()
+    return frozenset(path for path in recorded if isinstance(path, str))
 
 
 def _prior_blocking_finding_summaries(reviews: list[ReviewArtifact]) -> list[dict[str, Any]]:
