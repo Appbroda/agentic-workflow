@@ -377,6 +377,47 @@ async def test_the_live_reconnaissance_call_is_journaled_per_repository(
         await database.dispose()
 
 
+async def test_reconnaissance_succeeds_when_workspace_root_is_reached_through_a_symlink(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A symlinked `workspace_root` (a `/tmp` that is really `/private/tmp`) must not blind it.
+
+    `_require_workspace_child` resolves the root it is given but not the candidate path it is
+    checking, so a candidate built by joining an *unresolved* `workspace_root` never appears
+    in its own resolved root's parents once a symlink sits between them -- failing for every
+    repository, on every feature, regardless of what that repository contains. That is what
+    this deployment's `_inspect_one` did before it resolved its own candidate first.
+    """
+    database, journal = await _journal(tmp_path)
+    try:
+        real_root = tmp_path / "real-workspaces"
+        real_root.mkdir()
+        linked_root = tmp_path / "linked-workspaces"
+        linked_root.symlink_to(real_root, target_is_directory=True)
+
+        state = _single_repository_state(tmp_path, monkeypatch)
+        client = _ScriptedReconClient(response_payload())
+        reconnaissance = LiveRepositoryReconnaissance(
+            settings=load_settings(workspace_root=linked_root),
+            git_environment={},
+            recon_client=cast(Any, client),
+            journal=journal,
+            cancellation_token=MockCancellationToken(),
+        )
+
+        report = await reconnaissance.inspect(
+            feature=state,
+            repositories=state.repository_specs,
+            technical_prd=_technical_prd(state),
+            credentials=CREDENTIALS,
+        )
+
+        assert report.blind == []
+        assert len(report.artifacts) == 1
+    finally:
+        await database.dispose()
+
+
 async def test_a_failed_reconnaissance_call_fails_soft_and_still_leaves_its_row(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

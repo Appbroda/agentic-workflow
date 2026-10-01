@@ -577,12 +577,20 @@ class LiveRepositoryReconnaissance:
         # exists when; writing into it from the parent would couple reconnaissance to that
         # machinery for the sake of one avoided fetch. This clone is read-only and is
         # removed below, so it costs disk for the length of one model call.
+        # Resolved before the guard below, not after: every other caller of
+        # `_require_workspace_child` in this module resolves its candidate path first, and
+        # this one silently didn't. `_require_workspace_child` resolves the *root* but not
+        # the candidate, so an unresolved candidate under a symlinked `workspace_root` (a
+        # `/tmp` that is actually `/private/tmp`, say) never appears in its own resolved
+        # root's parents and the guard refuses every call, for every repository, regardless
+        # of what that repository contains -- which is exactly what made every repository
+        # reconnaissance in this deployment fail identically.
         workspace = (
             self._settings.workspace_root
             / _feature_branch_segment(feature.feature_id)
             / ".reconnaissance"
             / _safe_segment(repository.repository_id)
-        )
+        ).resolve(strict=False)
         _require_workspace_child(workspace, self._settings.workspace_root)
         operation_executor = ExternalOperationExecutor(
             journal=self._journal,
