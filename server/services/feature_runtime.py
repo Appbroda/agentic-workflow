@@ -47,6 +47,7 @@ from agents.shared.contracts import (
     create_artifact,
     safe_error_diagnostics,
 )
+from agents.shared.task_graph import ordered_task_ids
 from api.control_plane import RequestScopedCredentials
 from api.schemas import ClarificationAnswer
 from artifacts.schemas import (
@@ -3357,6 +3358,7 @@ class _LiveOrchestratorContext:
             prompt_loader=_prompt_loader(),
             llm_client=client("planner"),
             contract_generator=OpenAPIContractCodeGenerator(),
+            plan_task_dependencies=self._settings.plan_task_dependencies,
         )
         child_executor = LiveChildWorkstreamExecutor(
             settings=self._settings,
@@ -3603,6 +3605,22 @@ def _child_task_plan(
     model_routing: ModelRoutingDecision | None = None,
 ) -> TaskPlanArtifact:
     """Translate one feature workstream into the existing Engineer Agent's task-plan artifact."""
+    pairs = list(zip(workstream.task_ids, workstream.responsibilities, strict=False))
+    paired_ids = {task_id for task_id, _responsibility in pairs}
+    declared = {item.task_id: list(item.depends_on) for item in workstream.task_dependencies}
+    # Only the tasks this plan actually contains. `task_ids` and `responsibilities` are zipped
+    # positionally, so a workstream that declared more of one than the other loses its surplus
+    # here -- and a dependency on something that was lost would be a reference to a task the
+    # plan cannot point at, which is the one shape the task plan refuses outright. A plan that
+    # declares nothing yields an empty list for every task, exactly as it always did.
+    dependencies: dict[str, list[str]] = {
+        task_id: [
+            dependency_id
+            for dependency_id in dict.fromkeys(declared.get(task_id, ()))
+            if dependency_id in paired_ids and dependency_id != task_id
+        ]
+        for task_id, _responsibility in pairs
+    }
     tasks = [
         {
             "task_id": task_id,
@@ -3624,17 +3642,21 @@ def _child_task_plan(
             ),
             "owner": "engineer",
             "priority": "high",
-            "dependencies": [],
+            "dependencies": dependencies[task_id],
             "acceptance_criteria": workstream.acceptance_criteria,
             "estimated_effort_points": 1,
         }
-        for task_id, responsibility in zip(
-            workstream.task_ids, workstream.responsibilities, strict=False
-        )
+        for task_id, responsibility in pairs
     ]
     if not tasks:
         msg = "repository workstream requires at least one task"
         raise RuntimeConfigurationError(msg)
+    # The edges this order could not honour are deliberately discarded rather than acted on:
+    # tasks that wait on each other must stay in the graph so the artifact's own validator
+    # refuses the plan, which is where that refusal has always lived.
+    implementation_order, _unresolvable = ordered_task_ids(
+        [task_id for task_id, _responsibility in pairs], dependencies
+    )
     return create_artifact(
         TaskPlanArtifact,
         workflow_id=child.child_workflow_id,
@@ -3653,7 +3675,7 @@ def _child_task_plan(
                     "task_ids": [item["task_id"] for item in tasks],
                 }
             ],
-            "implementation_order": [item["task_id"] for item in tasks],
+            "implementation_order": implementation_order,
             "test_strategy": workstream.test_requirements,
             "risk_management_plan": [
                 "Do not change the approved integration contract.",

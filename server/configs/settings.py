@@ -470,6 +470,12 @@ class Settings(BaseSettings):
     # winning behaviour becomes the only one and this flag is deleted. A permanent flag is a
     # permanent second code path.
     bounded_review_scope: bool = False
+    # Whether the planner is asked to state which of a repository's own tasks must wait for
+    # another of its tasks. Off by default, and deliberately temporary: with it off the prompt
+    # is byte-identical to what it was, no response carries `task_dependencies`, and every task
+    # plan is built exactly as it is built today. It exists so the first plans that carry a real
+    # task graph can be read by a person before anything is allowed to schedule from one.
+    plan_task_dependencies: bool = False
     max_parallel_workstreams: int = Field(default=4, ge=1, le=64)
     # How long a feature may claim to be running, with nothing holding a live lease on it,
     # before the recovery sweep gives it a terminal status. Longer than the slowest single

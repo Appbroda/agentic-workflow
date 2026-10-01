@@ -897,6 +897,23 @@ class ImplementationExpectation(StrictSchema):
     tests_required: bool
 
 
+class WorkstreamTaskDependency(StrictSchema):
+    """One of a repository's tasks that cannot be started until others of its tasks are done.
+
+    A different question from `dependency_workstream_ids` one level up. That one is about a
+    published build artifact passing between two repositories; this one is about which of a
+    single repository's own tasks has to exist before another can be written against it.
+    Both `task_id` and every `depends_on` entry name a task declared in the same workstream's
+    `task_ids`.
+    """
+
+    task_id: NonEmptyString
+    # Accepted empty rather than refused. A model that lists every task and gives most of them
+    # nothing to wait for is saying the ordinary and correct thing -- these are independent --
+    # and rejecting that shape would spend a repair round trip on a true statement.
+    depends_on: list[NonEmptyString] = Field(default_factory=list)
+
+
 class RepositoryWorkstreamPlan(StrictSchema):
     """The contract-scoped implementation assignment for one repository."""
 
@@ -913,6 +930,11 @@ class RepositoryWorkstreamPlan(StrictSchema):
     shared_requirements: list[ScopedRequirementReference] = Field(default_factory=list)
     responsibilities: list[NonEmptyString] = Field(min_length=1)
     task_ids: list[NonEmptyString] = Field(min_length=1)
+    # Ordering among this workstream's own tasks. Defaulted empty because every plan persisted
+    # before the field existed genuinely declared none, and because independent tasks -- the
+    # ordinary case -- declare none either. Empty means what it has always meant: nothing here
+    # waits for anything else here.
+    task_dependencies: list[WorkstreamTaskDependency] = Field(default_factory=list)
     dependency_workstream_ids: list[NonEmptyString]
     contract_sections_consumed: list[NonEmptyString]
     contract_sections_implemented: list[NonEmptyString]
@@ -976,6 +998,39 @@ class RepositoryWorkstreamPlan(StrictSchema):
         if not expectation_ids.issubset(scoped_requirement_ids):
             msg = "implementation expectations must reference scoped requirements"
             raise ValueError(msg)
+        return self
+
+    @model_validator(mode="after")
+    def task_dependencies_must_reference_declared_tasks(self) -> Self:
+        """Keep task ordering inside the set of tasks this workstream actually declares.
+
+        Structural and nothing more. Unknown, self-referential and circular edges are removed
+        by the planner before an artifact is built, so this is the invariant that says a
+        persisted plan can never carry one -- not a gate a live plan is expected to fail.
+
+        Deliberately no cycle check here. A cycle is refused where the graph becomes an
+        instruction, by `TaskPlanArtifact`, which has refused one since it was written. Making
+        the same refusal twice would mean the backstop could never be exercised.
+        """
+        declared = set(self.task_ids)
+        _require_unique_ids((item.task_id for item in self.task_dependencies), "task dependency")
+        for item in self.task_dependencies:
+            if item.task_id not in declared:
+                msg = (
+                    f"task dependency '{item.task_id}' is not one of this workstream's "
+                    "declared task_ids"
+                )
+                raise ValueError(msg)
+            unknown = set(item.depends_on) - declared
+            if unknown:
+                msg = (
+                    f"task '{item.task_id}' depends on tasks this workstream does not "
+                    f"declare: {sorted(unknown)}"
+                )
+                raise ValueError(msg)
+            if item.task_id in item.depends_on:
+                msg = f"task '{item.task_id}' cannot depend on itself"
+                raise ValueError(msg)
         return self
 
 

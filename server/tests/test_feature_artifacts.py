@@ -12,6 +12,7 @@ from artifacts.schemas import (
     EndpointContract,
     IntegrationContractArtifact,
     RepositoryExecutionPlanArtifact,
+    RepositoryWorkstreamPlan,
     SharedSchemaDefinition,
 )
 from tools.contract_tools import OpenAPIContractCodeGenerator
@@ -92,6 +93,35 @@ def test_repository_plan_accepts_legacy_artifacts_without_requirement_ownership(
     )
 
     assert plan.workstreams[0].requirement_ids == []
+
+
+def test_a_plan_written_before_task_ordering_existed_still_reads() -> None:
+    """A workstream from before task_dependencies existed has no ordering, not a corrupt row."""
+    plan = RepositoryWorkstreamPlan.model_validate(workstream("backend", dependencies=[]))
+
+    assert plan.task_dependencies == []
+
+
+def test_a_workstream_cannot_order_a_task_it_does_not_declare() -> None:
+    """A dependency naming a task outside this workstream's own task_ids is not a real edge."""
+    payload = {
+        **workstream("backend", dependencies=[]),
+        "task_dependencies": [{"task_id": "backend-task", "depends_on": ["nope"]}],
+    }
+
+    with pytest.raises(ValidationError, match="does not declare"):
+        RepositoryWorkstreamPlan.model_validate(payload)
+
+
+def test_a_workstream_task_cannot_depend_on_itself() -> None:
+    """A task named as its own dependency is refused rather than silently accepted."""
+    payload = {
+        **workstream("backend", dependencies=[]),
+        "task_dependencies": [{"task_id": "backend-task", "depends_on": ["backend-task"]}],
+    }
+
+    with pytest.raises(ValidationError, match="cannot depend on itself"):
+        RepositoryWorkstreamPlan.model_validate(payload)
 
 
 def artifact_envelope(artifact_id: str) -> dict[str, object]:

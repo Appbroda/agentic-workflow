@@ -322,6 +322,38 @@ def test_a_reconnaissance_that_established_no_commands_reads_as_unknown() -> Non
     assert "was not established for that repository, not" in rendered
 
 
+def _planner_render(**overrides: Any) -> str:
+    """Render the planner prompt with the minimal fixed context every render test here shares."""
+    return PromptLoader().render(
+        "planner/feature_v1.jinja2",
+        feature_id="feature-1",
+        technical_prd="{}",
+        repositories=[],
+        has_reconnaissance=True,
+        reconnaissance=json.dumps([{"repository_id": "admin"}]),
+        design_snapshot="",
+        **overrides,
+    )
+
+
+def test_the_planner_prompt_is_unchanged_when_task_dependencies_are_not_requested() -> None:
+    """Every deployment that never sets plan_task_dependencies must see today's exact prompt."""
+    without_flag = _planner_render()
+    with_flag_explicitly_off = _planner_render(plan_task_dependencies=False)
+
+    assert without_flag == with_flag_explicitly_off
+    assert "task_dependencies" not in without_flag
+
+
+def test_the_planner_prompt_explains_task_dependencies_when_requested() -> None:
+    """Turning the flag on adds the task_dependencies field and its own-task-only guidance."""
+    rendered = _planner_render(plan_task_dependencies=True)
+
+    assert '"task_dependencies"' in rendered
+    assert "puts them in a queue for no reason" in rendered
+    assert "described a sequence rather than a dependency" in rendered
+
+
 def test_prompt_loader_rejects_path_traversal_and_missing_context() -> None:
     """Template loading cannot leave the prompt root or silently omit required values."""
     loader = PromptLoader()
