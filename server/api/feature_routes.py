@@ -208,6 +208,7 @@ _OPERATION_STAGES: dict[ExternalOperationType, str] = {
     ExternalOperationType.RUN_REPOSITORY_RECON: "planning",
     ExternalOperationType.RUN_CLARIFICATION_GROUNDING: "planning",
     ExternalOperationType.RUN_FEATURE_PLANNER: "planning",
+    ExternalOperationType.RUN_INTEGRATION_REVIEW: "integration_review",
 }
 
 

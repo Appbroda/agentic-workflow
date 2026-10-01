@@ -975,6 +975,10 @@ OPERATION_VOICES: Mapping[ExternalOperationType, OperationVoice] = {
     ExternalOperationType.FETCH_DESIGN_REFERENCE: OperationVoice(
         LogbookAgent.ORCHESTRATOR, "reading the designs attached to this request"
     ),
+    ExternalOperationType.RUN_INTEGRATION_REVIEW: OperationVoice(
+        LogbookAgent.INTEGRATION_REVIEWER,
+        "comparing the repositories' changes against the shared contract",
+    ),
 }
 
 

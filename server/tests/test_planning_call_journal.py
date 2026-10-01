@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import pytest
+import structlog
 
 import workflows.feature_workflow as feature_workflow_module
 from adapters.llm_adapter import ImageInput, LLMAdapterError, LLMResponse
@@ -42,6 +43,7 @@ from state.external_operations import (
 from state.feature_models import FeatureWorkflowSnapshot
 from storage.db import Database
 from storage.external_operation_store import ExternalOperationJournal
+from tests.test_attachment_lifecycle import _captured_logs
 from tests.test_clarification_suggestions import _GLOBAL_AUTH_PREMISE, GroundingReconnaissance
 from tests.test_feature_workflow import (
     ProviderFaultThenPlanPlanner,
@@ -225,6 +227,123 @@ async def test_each_retried_planning_call_writes_its_own_row(
             ExternalOperationStatus.FAILED_TERMINAL,
             ExternalOperationStatus.SUCCEEDED,
         ]
+    finally:
+        await database.dispose()
+
+
+async def test_the_integration_review_call_leaves_one_completed_row(tmp_path: Path) -> None:
+    """The cross-repository seam call is journaled exactly like the other pre-coding calls.
+
+    AB-Feature-174 hung inside this call with no journal row and no heartbeat -- this pins the
+    fix: a completed run of the default (mock-approving) composition leaves one
+    ``run_integration_review`` row with a start, a heartbeat, and an end.
+    """
+    database, journal = await _journal(tmp_path)
+    try:
+        state = _initial_feature_state(
+            "feature-journaled-integration-review",
+            StartFeatureRequest.model_validate(feature_payload()),
+        )
+        orchestrator = FeatureWorkflowOrchestrator(operation_executor_factory=_factory(journal))
+
+        result = await orchestrator.start(state, credentials=CREDENTIALS)
+
+        assert result.status is FeatureWorkflowStatus.COMPLETED
+        rows = await _rows(journal, result.feature_id, ExternalOperationType.RUN_INTEGRATION_REVIEW)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status is ExternalOperationStatus.SUCCEEDED
+        assert row.safe_metadata["logical_step"] == "integration_review"
+        assert row.started_at is not None
+        assert row.heartbeat_at is not None
+        assert row.completed_at is not None
+        assert row.completed_at >= row.started_at
+    finally:
+        await database.dispose()
+
+
+async def test_a_failed_integration_review_call_still_leaves_its_row(tmp_path: Path) -> None:
+    """A deterministic refusal fails once, and its row carries the fault identity, not raw text."""
+
+    class _RefusedIntegrationReviewer:
+        calls = 0
+
+        async def review(self, **_kwargs: Any) -> Any:
+            type(self).calls += 1
+            msg = "the model provider call failed (BadRequestError)"
+            raise LLMAdapterError(msg, diagnostics=(msg,), failure_classification="BadRequestError")
+
+    database, journal = await _journal(tmp_path)
+    try:
+        state = _initial_feature_state(
+            "feature-journaled-integration-review-failure",
+            StartFeatureRequest.model_validate(feature_payload()),
+        )
+        orchestrator = FeatureWorkflowOrchestrator(
+            integration_reviewer=cast(Any, _RefusedIntegrationReviewer()),
+            operation_executor_factory=_factory(journal),
+        )
+
+        with pytest.raises(LLMAdapterError):
+            await orchestrator.start(state, credentials=CREDENTIALS)
+
+        assert _RefusedIntegrationReviewer.calls == 1, (
+            "a deterministic provider answer must not earn the call again"
+        )
+        rows = await _rows(journal, state.feature_id, ExternalOperationType.RUN_INTEGRATION_REVIEW)
+        assert len(rows) == 1
+        row = rows[0]
+        assert row.status is ExternalOperationStatus.FAILED_TERMINAL
+        assert row.error_code == "run_integration_review_failed"
+        assert row.error_message is not None
+        assert "LLMAdapterError/BadRequestError" in row.error_message
+    finally:
+        await database.dispose()
+
+
+async def test_the_integration_review_stage_logs_its_start_completion_and_verdict(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The live log file shows the stage running and its outcome, not only the DB journal.
+
+    AB-Feature-174's hang and AB-Feature-171's silent early-exit were both invisible from the
+    log file alone. This pins the part of the fix that writes to the log directly: a start line,
+    a completion line, and the review's verdict.
+
+    A fresh logger is substituted for the module's own before capturing: ``structlog``'s
+    production configuration (``main.configure_structlog``, which every test process loads as
+    an import side effect) caches a logger's resolved processors the first time it is ever
+    called, and earlier tests in this file are that first call for
+    ``workflows.feature_workflow``'s own logger -- so capturing through the module's already-
+    cached instance would see nothing. A never-used proxy has no cached resolution to ignore.
+    """
+    monkeypatch.setattr(feature_workflow_module, "_LOGGER", structlog.get_logger("test.capture"))
+    database, journal = await _journal(tmp_path)
+    try:
+        state = _initial_feature_state(
+            "feature-journaled-integration-review-logs",
+            StartFeatureRequest.model_validate(feature_payload()),
+        )
+        orchestrator = FeatureWorkflowOrchestrator(operation_executor_factory=_factory(journal))
+
+        with _captured_logs() as entries:
+            result = await orchestrator.start(state, credentials=CREDENTIALS)
+
+        assert result.status is FeatureWorkflowStatus.COMPLETED
+        by_event = {
+            (entry["event"], entry.get("stage")): entry
+            for entry in entries
+            if entry["event"].startswith("feature_stage_") or entry["event"] == (
+                "integration_review_verdict"
+            )
+        }
+        started = by_event[("feature_stage_started", "integration_review")]
+        assert started["feature_id"] == result.feature_id
+        completed = by_event[("feature_stage_completed", "integration_review")]
+        assert completed["feature_id"] == result.feature_id
+        verdict = by_event[("integration_review_verdict", None)]
+        assert verdict["feature_id"] == result.feature_id
+        assert verdict["review_status"] == "approved"
     finally:
         await database.dispose()
 
@@ -482,7 +601,10 @@ async def test_the_executions_read_renders_the_journal_rows(tmp_path: Path) -> N
         planning_calls = [
             item for item in records if item.execution_id.startswith("planning_call:")
         ]
-        assert len(planning_calls) == 2, "one record per journaled pre-coding call"
+        # Product manager, planner, and -- since this deterministic composition's mock
+        # reviewers approve every repository -- the integration review that follows them:
+        # one record per journaled pre-coding-shaped call.
+        assert len(planning_calls) == 3, "one record per journaled pre-coding-shaped call"
         by_handler = {item.handler: item for item in planning_calls}
         manager = by_handler["Product manager"]
         assert manager.status.value == "completed"
@@ -496,6 +618,10 @@ async def test_the_executions_read_renders_the_journal_rows(tmp_path: Path) -> N
         assert manager.model_resolved is False
         planner = by_handler["Technical planner"]
         assert planner.failure_classification is None
+        integration_reviewer = by_handler["Integration reviewer"]
+        assert integration_reviewer.status.value == "completed"
+        assert integration_reviewer.started_at is not None
+        assert integration_reviewer.heartbeat_at is not None
         # The artifact-derived stage rows are untouched beside them.
         assert any(item.execution_id.startswith("technical_prd:") for item in records)
     finally:

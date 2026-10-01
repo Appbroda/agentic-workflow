@@ -86,6 +86,9 @@ _RECOVERY_POLICY: dict[ExternalOperationType, RecoveryDisposition] = {
     # resolution step resumes from its artifact like every other pre-coding stage, writing a
     # fresh row for its fresh call. There is nothing for a person to look at.
     ExternalOperationType.FETCH_DESIGN_REFERENCE: RecoveryDisposition.WORKSPACE_LOCAL,
+    # The cross-repository seam call has no effect outside this process either: the step
+    # resumes from `_persisted_integration_review`'s artifact, never from this row.
+    ExternalOperationType.RUN_INTEGRATION_REVIEW: RecoveryDisposition.WORKSPACE_LOCAL,
 }
 
 

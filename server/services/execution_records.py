@@ -546,6 +546,14 @@ _PLANNING_CALL_STAGES: dict[ExternalOperationType, tuple[ExecutionStage, Executi
         ExecutionStage.INTEGRATION_CONTRACT,
         "Technical planner",
     ),
+    # Not a pre-coding call, but the same shape of gap: the only record with a start time and
+    # a heartbeat while the cross-repository seam call is still in flight, which is exactly
+    # the window AB-Feature-174 hung inside with nothing to show for it.
+    ExternalOperationType.RUN_INTEGRATION_REVIEW: (
+        ExecutionStage.REVIEW,
+        ExecutionStage.INTEGRATION_REVIEW,
+        "Integration reviewer",
+    ),
 }
 
 # What a caller loading journal rows for this read model should filter on.
