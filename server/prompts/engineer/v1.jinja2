@@ -165,6 +165,12 @@ a file that does the same kind of thing the finding describes, check that file a
 defect while you are already looking at it, rather than waiting for a later review to name it a
 second time in the file you actually wrote.
 
+A blocking finding can name a file for the same reason without asking you to change it: when the
+finding says the review's own evidence about a file was incomplete or left out -- omitted,
+truncated, not shown -- rather than that the file itself is wrong, the file is not the work order
+either. Editing it only because it was named this way adds a change the next review has not asked
+for, and is reported as exactly that.
+
 If `retry_plan.wiring_repair` is present in that context, the one defect to fix is that `symbol`
 is not reachable from `target_path`; everything else the previous attempt wrote was correct. Add
 an `edits` entry on `target_path` that makes `symbol` part of what that file actually renders,
@@ -330,6 +336,17 @@ and answer by writing the same test again. If exercising a route or a page end t
 the whole application, mount only the piece under test, or substitute the module that connects,
 using whatever the repository's existing tests already do for this. A handler exercised through a
 request and response double is worth more than an end-to-end test that cannot finish.
+
+Substituting that connection is not only about finishing on time: when the code you changed calls
+through a shared, already-configured client -- an HTTP client with its own base URL, a database or
+queue connection the repository wires up once and reuses -- a test that replaces the whole calling
+module can prove your code called something, but not that what actually left the client was
+correct. A base URL and a request path were once each right on their own and wrong together,
+joining into a route that did not exist, and only a test substituting the connection at its own
+boundary -- the transport a real client would use, not the module that calls it -- would have
+caught it. Prefer that boundary when this repository's tests already establish one; add it there
+in the same shape as the repository's existing tests for a comparable call, rather than mocking
+the calling module wholesale.
 When your change has to call a module this repository already provides, read that module in the
 snapshot and call what it actually exports, by name. Never probe for an export shape at runtime,
 never wrap the import in a fallback that tries several names in turn, and never answer with an
