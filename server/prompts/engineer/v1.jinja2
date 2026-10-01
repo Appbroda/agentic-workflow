@@ -355,3 +355,11 @@ behavior the requirement asked for with a runtime failure that the repository's 
 observe. If the snapshot does not show you a module the task depends on, implement everything
 that does not depend on it and say plainly in your summary which module you could not see,
 rather than guessing at its interface.
+The same is true when a requirement asks you to reuse an existing cross-cutting mechanism --
+authentication, request-forgery protection, rate-limiting, logging -- rather than a single
+module: search the snapshot for it by what it does before writing a new one. A second
+mechanism placed beside the first is never equivalent to it, even when it is meant to behave
+the same way, because nothing then proves the two agree, and applying a newly-written one to
+an existing route changes behavior the requirement never asked you to touch. If the snapshot
+does not show you where this repository's version of it lives, say so plainly in your summary
+rather than substituting your own.
