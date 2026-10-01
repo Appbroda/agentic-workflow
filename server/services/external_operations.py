@@ -284,6 +284,12 @@ class ExternalOperationExecutor:
             )
             raise
         except OperationLeaseLostError as error:
+            # Read back by `is_transient_provider_fault` (workflows/feature_workflow.py), so a
+            # lease lost on a workspace-local operation can be told apart from one lost on an
+            # operation with a real external effect, without this handler itself deciding that
+            # -- the recovery sweep's own policy table already does, and this is the one
+            # thing missing to let it be consulted from here too.
+            error.operation_type = operation_type
             current = await self._journal.get(operation.operation_id)
             if current.status is ExternalOperationStatus.UNKNOWN_EXTERNAL_STATE:
                 raise

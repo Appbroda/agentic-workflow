@@ -92,6 +92,7 @@ from services.design_resolution import (
     unreachable_design_detail,
 )
 from services.external_operations import ExternalOperationExecutor
+from services.recovery_service import _RECOVERY_POLICY, RecoveryDisposition
 from services.repository_repair import (
     build_repair_payload,
     find_repair,
@@ -685,6 +686,22 @@ def is_transient_provider_fault(error: BaseException) -> bool:
     and the second must win, because attempting an unconfirmed effect again is the one guess
     the operation journal exists to prevent.
     """
+    if isinstance(error, OperationLeaseLostError):
+        # A lease lost mid-execution means the platform cannot confirm whether the protected
+        # action still completed -- but only when that action could have an effect outside
+        # this workstream's own workspace. The recovery sweep's own policy table
+        # (services/recovery_service.py) already answers exactly this question for every
+        # operation type: a WORKSPACE_LOCAL operation (a coding call, a review, a lint/test/
+        # build run) has nothing outside the workspace to reconcile, so losing its lease is
+        # retryable like any other transient fault -- AB-Feature-167's reviewer call among
+        # them. LOCAL_RECONCILE is deliberately excluded: it settles from on-disk evidence
+        # rather than being unconditionally safe, and this check cannot run that
+        # reconciliation. Everything else keeps the unconditional refusal below.
+        operation_type = getattr(error, "operation_type", None)
+        return (
+            operation_type is not None
+            and _RECOVERY_POLICY.get(operation_type) is RecoveryDisposition.WORKSPACE_LOCAL
+        )
     if isinstance(error, _UNCONFIRMED_OPERATION_FAULTS):
         return False
     if isinstance(error, OperationReplayRefused):

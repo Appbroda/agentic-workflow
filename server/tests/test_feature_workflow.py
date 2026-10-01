@@ -47,6 +47,7 @@ from state.enums import (
     FeatureWorkflowStatus,
     TargetedAttempt,
 )
+from state.external_operations import ExternalOperationType
 from state.failure_diagnosis import FeatureFailureClassification
 from state.feature_models import ChildWorkflowReference, FeatureWorkflowSnapshot
 from storage.external_operation_store import (
@@ -4922,6 +4923,41 @@ def test_a_transient_provider_fault_still_earns_the_attempt_again() -> None:
             failure_classification=classification,
         )
         assert is_transient_provider_fault(error), classification or "unclassified"
+
+
+def test_a_lease_lost_on_a_workspace_local_operation_earns_the_attempt_again() -> None:
+    """AB-Feature-167: the reviewer's own operation lost its lease and got zero retries.
+
+    Nothing outside the workspace could have happened here -- `run_reviewer` is one of the
+    operation types `services/recovery_service.py`'s own policy table already calls
+    WORKSPACE_LOCAL, and its periodic sweep would have reached the identical conclusion,
+    just too late to matter once the workflow had already given up.
+    """
+    error = OperationLeaseLostError("external operation heartbeat could not be renewed")
+    error.operation_type = ExternalOperationType.RUN_REVIEWER
+    assert is_transient_provider_fault(error)
+
+
+@pytest.mark.parametrize(
+    "operation_type",
+    [
+        ExternalOperationType.CREATE_PULL_REQUEST,  # DEFER_TO_CREDENTIALED
+        ExternalOperationType.PUSH_BRANCH,  # DEFER_TO_CREDENTIALED
+        ExternalOperationType.CLONE_REPOSITORY,  # LOCAL_RECONCILE -- settles from evidence
+    ],
+)
+def test_a_lease_lost_on_an_external_or_reconcilable_operation_is_still_never_retried(
+    operation_type: ExternalOperationType,
+) -> None:
+    """Widening the workspace-local case must not widen the guard around anything else."""
+    error = OperationLeaseLostError("external operation heartbeat could not be renewed")
+    error.operation_type = operation_type
+    assert not is_transient_provider_fault(error)
+
+
+def test_a_lease_lost_with_no_operation_type_recorded_is_still_never_retried() -> None:
+    """Every pre-existing raise site that never learned about this field keeps today's answer."""
+    assert not is_transient_provider_fault(OperationLeaseLostError("lease lost"))
 
 
 class FixAttemptFailsUnrelatedExecutor:
