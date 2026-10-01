@@ -146,9 +146,7 @@ def test_a_prior_review_is_renamed_back_to_child_scoped_lineage_before_the_next_
     platform has ever run -- confirmed directly against AB-Feature-171's own persisted
     artifacts, whose real `artifact_id` is exactly the qualified shape built here.
     """
-    feature = _feature(
-        [_persisted_review(attempt=0, omitted_path="server/utils/service.util.js")]
-    )
+    feature = _feature([_persisted_review(attempt=0, omitted_path="server/utils/service.util.js")])
 
     renamed = _previous_child_review(feature, "feature-66:frontend")
 

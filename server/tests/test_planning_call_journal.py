@@ -333,9 +333,8 @@ async def test_the_integration_review_stage_logs_its_start_completion_and_verdic
         by_event = {
             (entry["event"], entry.get("stage")): entry
             for entry in entries
-            if entry["event"].startswith("feature_stage_") or entry["event"] == (
-                "integration_review_verdict"
-            )
+            if entry["event"].startswith("feature_stage_")
+            or entry["event"] == ("integration_review_verdict")
         }
         started = by_event[("feature_stage_started", "integration_review")]
         assert started["feature_id"] == result.feature_id

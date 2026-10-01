@@ -6,17 +6,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from typing import Any
 
 import boto3
 from sqlalchemy import event
 from sqlalchemy.engine import make_url
+from sqlalchemy.engine.interfaces import Dialect
 from sqlalchemy.ext.asyncio import (
     AsyncEngine,
     AsyncSession,
     async_sessionmaker,
     create_async_engine,
 )
-from sqlalchemy.pool import NullPool, Pool
+from sqlalchemy.pool import ConnectionPoolEntry, NullPool, Pool
 
 from storage.models import Base
 
@@ -35,7 +37,12 @@ def attach_iam_auth(engine: AsyncEngine, database_url: str, region: str) -> None
     client = boto3.client("rds", region_name=region)
 
     @event.listens_for(engine.sync_engine, "do_connect")
-    def _inject_iam_token(dialect, conn_rec, cargs, cparams) -> None:
+    def _inject_iam_token(
+        dialect: Dialect,
+        conn_rec: ConnectionPoolEntry,
+        cargs: tuple[Any, ...],
+        cparams: dict[str, Any],
+    ) -> None:
         cparams["password"] = client.generate_db_auth_token(
             DBHostname=url.host,
             Port=url.port or 5432,
