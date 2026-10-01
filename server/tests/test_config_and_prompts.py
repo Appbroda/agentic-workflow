@@ -354,6 +354,14 @@ def test_the_planner_prompt_explains_task_dependencies_when_requested() -> None:
     assert "described a sequence rather than a dependency" in rendered
 
 
+def test_the_planner_prompt_shows_a_concrete_authentication_scheme_example() -> None:
+    """A real example value and explicit guidance replace the bare placeholder type-name."""
+    rendered = _planner_render()
+
+    assert '"scheme": "bearer"' in rendered
+    assert "never a descriptive sentence about it" in rendered
+
+
 def test_prompt_loader_rejects_path_traversal_and_missing_context() -> None:
     """Template loading cannot leave the prompt root or silently omit required values."""
     loader = PromptLoader()

@@ -123,7 +123,7 @@ section is not applicable. Do not rename fields or substitute similar ones.
       }
     ],
     "authentication_contract": {
-      "scheme": "string",
+      "scheme": "bearer",
       "header_name": "string or null",
       "description": "string"
     },
@@ -221,7 +221,10 @@ section is not applicable. Do not rename fields or substitute similar ones.
   }
 }
 
-`authentication_contract` may be null. `request_schema` and `schema_definition` may be
+`authentication_contract` may be null, but when present its `scheme` must name the actual
+authentication mechanism concisely -- `bearer`, `basic`, `apiKey`, or a comparably short token a
+client library would recognize -- never a descriptive sentence about it. `request_schema` and
+`schema_definition` may be
 null. `api_contracts`, `data_entities`, `risks`, `event_contracts`, and
 `environment_variables` may be empty arrays. Every item in `query_parameters`,
 `path_parameters`, and `headers` must be a JSON object, never a plain string; use an empty
