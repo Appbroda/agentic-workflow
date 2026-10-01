@@ -7,3 +7,9 @@ for the rule suppressed or the idiom left in place for a formatter to clear -- n
 are stylistic, and `--fix` corrects none of them. Default to `const` for a binding you never
 reassign, and declare it in its own statement -- a binding that turns out to need `let` after
 the fact is easier to widen than one this repository's own gate did not narrow for you.
+
+A test that hangs the whole process is not always a connection left open: a mocked hook or
+module whose return value feeds a dependency list -- `useEffect`, `useCallback`, `useMemo`, or
+an equivalent elsewhere in this ecosystem -- must return the same values across calls. A mock
+that returns a new function or object identity every render reproduces the exact infinite
+re-render loop a real bug would, and hangs the test runner rather than failing it cleanly.

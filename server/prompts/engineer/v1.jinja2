@@ -341,6 +341,14 @@ the whole application, mount only the piece under test, or substitute the module
 using whatever the repository's existing tests already do for this. A handler exercised through a
 request and response double is worth more than an end-to-end test that cannot finish.
 
+Mounting the application's own real entry point can satisfy that same boundary and still hang for
+a reason that has nothing to do with the connection this test is actually about: the entry point's
+own wiring may construct other clients -- a mail service, a queue, a payment gateway -- that this
+change never touches, and the suite hangs on whichever of those has no working credential in this
+environment. Prefer the narrowest real boundary that exercises what changed -- the specific route,
+handler, or page under test -- over the whole assembled application, even when a real boundary,
+not a wholesale mock, is exactly what the change calls for.
+
 Substituting that connection is not only about finishing on time: when the code you changed calls
 through a shared, already-configured client -- an HTTP client with its own base URL, a database or
 queue connection the repository wires up once and reuses -- a test that replaces the whole calling
