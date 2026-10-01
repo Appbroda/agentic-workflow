@@ -158,6 +158,13 @@ pass. Where it would take you into a file the blocking findings do not touch, le
 say so in `summary`. These are carried because a finding raised once and withheld comes back as a
 blocking finding on the next attempt, which spends an attempt on something already known.
 
+One shape is worth reading twice rather than once: an advisory finding that names a real defect
+class -- a missing guard, a race, a validation gap -- in a file neither it nor the work order
+sends you into. Leaving that file alone is still correct; but if your own change adds or rewrites
+a file that does the same kind of thing the finding describes, check that file against the same
+defect while you are already looking at it, rather than waiting for a later review to name it a
+second time in the file you actually wrote.
+
 If `retry_plan.wiring_repair` is present in that context, the one defect to fix is that `symbol`
 is not reachable from `target_path`; everything else the previous attempt wrote was correct. Add
 an `edits` entry on `target_path` that makes `symbol` part of what that file actually renders,
