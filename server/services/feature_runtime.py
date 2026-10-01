@@ -917,6 +917,25 @@ class LiveChildWorkstreamExecutor(ChildWorkstreamExecutor):
                     }
                 )
             )
+        # This repository's own reconnaissance, re-homed the same way and for the same reason:
+        # `_primary_language` (agents/engineer/agent.py) reads it back by `repository_id` to
+        # gate language-specific prompt content, and defaults to showing nothing extra when a
+        # repository was never read or reconnaissance ran blind, so a feature with no
+        # reconnaissance at all renders byte-identical to today.
+        reconnaissance = _feature_reconnaissance(feature, repository.repository_id)
+        if reconnaissance is not None:
+            state["artifacts"].append(
+                reconnaissance.model_copy(
+                    update={
+                        "workflow_id": child.child_workflow_id,
+                        "metadata": {
+                            **reconnaissance.metadata,
+                            "parent_feature_id": feature.feature_id,
+                            "read_only": True,
+                        },
+                    }
+                )
+            )
         state["retry_count"] = child.retry_count
         # The lineage this retry builds on. `_prior_attempt_file_changes` has always existed
         # to merge earlier attempts' files into the next completion, and it reads exactly
@@ -4096,6 +4115,26 @@ def _assigned_design_contents(
     if detail is None:
         return ()
     return tuple(node.content for node in detail.nodes)
+
+
+def _feature_reconnaissance(
+    feature: FeatureWorkflowSnapshot, repository_id: str
+) -> RepositoryReconnaissanceArtifact | None:
+    """Return this repository's newest reconnaissance artifact, or nothing.
+
+    Newest, like `_feature_design_snapshot` and for its reason: a clarification answer or a
+    recovery can send the feature back through planning, and `_existing_reconnaissance`
+    (workflows/feature_workflow.py) already reuses whatever the feature holds rather than
+    reading the checkout again -- this mirrors that same "last one wins" selection, scoped to
+    one repository, for the child workflow this artifact is being re-homed into.
+    """
+    for artifact in reversed(feature.artifacts):
+        if (
+            isinstance(artifact, RepositoryReconnaissanceArtifact)
+            and artifact.repository_id == repository_id
+        ):
+            return artifact
+    return None
 
 
 def _feature_design_snapshot(feature: FeatureWorkflowSnapshot) -> DesignSnapshotArtifact | None:

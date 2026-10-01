@@ -38,6 +38,7 @@ from agents.shared.design_snapshot import (
 from artifacts.schemas import (
     CodeCompletionArtifact,
     FileChange,
+    RepositoryReconnaissanceArtifact,
     RequirementImplementationEvidence,
     ReviewArtifact,
     TaskPlanArtifact,
@@ -2189,6 +2190,7 @@ class EngineerAgent:
             previous_attempt_diff=self._previous_attempt_diff or "",
             previous_attempt_withheld_files=list(self._previous_attempt_withheld_files),
             previous_attempt_files_present=previous_attempt_files_present,
+            primary_language=_primary_language(state),
         )
         input_text = json.dumps(
             {
@@ -2749,6 +2751,28 @@ def _prior_review_for_retry(
     if state["retry_count"] > 0 and not allow_without_review:
         msg = "engineer retry requires prior 007_review.json"
         raise AgentArtifactError(msg)
+    return None
+
+
+def _primary_language(state: AgentState) -> str | None:
+    """Return this workstream's repository's detected primary language, if reconnaissance saw it.
+
+    Reconnaissance runs once per repository at the feature level; the child workflow that runs
+    this agent is re-homed onto exactly one repository, named by its own workspace id. Absence
+    -- reconnaissance never ran, ran blind, or could not confidently detect one -- returns
+    `None`, so the caller renders the base prompt exactly as it does today.
+    """
+    repository_id = state["workspace_descriptor"].workspace_id
+    for artifact in state["artifacts"]:
+        if (
+            isinstance(artifact, RepositoryReconnaissanceArtifact)
+            and artifact.repository_id == repository_id
+        ):
+            profile = artifact.metadata.get("technology_profile")
+            if isinstance(profile, dict):
+                language = profile.get("primary_language")
+                if isinstance(language, str) and language:
+                    return language
     return None
 
 

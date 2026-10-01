@@ -188,6 +188,59 @@ def test_prompt_templates_render_versioned_context(
     assert template_name in loader.list_templates()
 
 
+_ENGINEER_BASE_CONTEXT: dict[str, str] = {
+    "workflow_id": "workflow-1",
+    "workspace_descriptor": "workspace-1",
+    "task_plan": "Implement schemas.",
+    "repository_context": "Repository files.",
+    "execution_context": "No retry context.",
+    "lint_capabilities": "{}",
+    "previous_attempt_diff": "",
+}
+
+
+@pytest.mark.parametrize("primary_language", ["JavaScript", "TypeScript"])
+def test_the_javascript_lint_fragment_appears_for_javascript_and_typescript(
+    primary_language: str,
+) -> None:
+    """A JS or TS repository is shown the loop/const/module.exports guidance."""
+    loader = PromptLoader()
+
+    rendered_prompt = loader.render(
+        "engineer/v1.jinja2", primary_language=primary_language, **_ENGINEER_BASE_CONTEXT
+    )
+
+    assert "mixing `import` with `module.exports`" in rendered_prompt
+
+
+@pytest.mark.parametrize("primary_language", ["Python", "Go", "Rust", "Java", "Unknown"])
+def test_the_javascript_lint_fragment_is_absent_for_every_other_language(
+    primary_language: str,
+) -> None:
+    """A non-JS repository never sees loop/const/module.exports guidance meant for JS."""
+    loader = PromptLoader()
+
+    rendered_prompt = loader.render(
+        "engineer/v1.jinja2", primary_language=primary_language, **_ENGINEER_BASE_CONTEXT
+    )
+
+    assert "mixing `import` with `module.exports`" not in rendered_prompt
+
+
+def test_the_javascript_lint_fragment_is_absent_when_the_language_is_not_supplied() -> None:
+    """A caller that never learned the repository's language keeps today's plain prompt.
+
+    Every render call site that predates this fragment -- and every test fixture built before
+    it -- passes no `primary_language` at all; `StrictUndefined` would otherwise fail every one
+    of them the moment this template renders.
+    """
+    loader = PromptLoader()
+
+    rendered_prompt = loader.render("engineer/v1.jinja2", **_ENGINEER_BASE_CONTEXT)
+
+    assert "mixing `import` with `module.exports`" not in rendered_prompt
+
+
 def test_the_review_is_told_which_commands_the_platform_will_run() -> None:
     """A demand to execute something needs the list of what can be executed to be bounded by.
 
