@@ -357,6 +357,71 @@ async def test_a_seam_module_omitted_twice_is_summarized_not_dropped_a_third_tim
     assert review.metadata["seam_evidence_budget_omitted_paths"] == [_CONFIG_MODULE]
 
 
+async def test_a_seam_module_with_no_configuring_call_stops_blocking_on_the_second_omission(
+    tmp_path: Path,
+) -> None:
+    """A repeat omission with nothing to summarize must not keep blocking forever either.
+
+    AB-Feature-176: `Batches.js`/`CreateBatch.js` are plain consumers of a channel wrapper --
+    they only call the hook, never configure it -- so `configuration_calls` is permanently
+    empty and the summarization escalation above never applies to them. Before this fix, that
+    meant `seam_context_omitted` recurred identically on every attempt, forever: three
+    consecutive reviews blocked on the exact same two files with nothing the next attempt could
+    change. The second consecutive omission must stop forcing a block even with nothing to
+    quote instead.
+    """
+    (tmp_path / "src" / "api").mkdir(parents=True)
+    filler = "\n".join(f"export const row{index:05d} = '{index:0>40}';" for index in range(500))
+    (tmp_path / _CONFIG_MODULE).write_text(
+        f"import client from '{_NODE_PACKAGE}';\n// {_CONFIG_MARKER}\n{filler}\n",
+        encoding="utf-8",
+    )
+    completion = (
+        await EngineerAgent(
+            prompt_loader=PromptLoader(),
+            coding_executor=MockCodingExecutor(
+                file_updates={"src/features/upload.js": _bare_import_source()}
+            ),
+        ).run(agent_state(tmp_path, [task_plan_artifact()]))
+    )["artifacts"][0]
+    client = StaticLLMClient(domain_payload(review_artifact()))
+    prior_review = review_artifact().model_copy(
+        update={
+            "metadata": {
+                "seam_evidence_budget_omitted_paths": [_CONFIG_MODULE],
+            }
+        }
+    )
+
+    update = await _reviewer(client).run(
+        agent_state(
+            tmp_path,
+            [technical_prd_artifact(), task_plan_artifact(), completion, prior_review],
+        )
+    )
+
+    evidence = json.loads(client.calls[0][1])["workspace_change_evidence"]
+    # Not a blocking omission a second time: nothing to quote instead, but not a fresh,
+    # resolvable limitation either. Still named in the full `omitted` list (never silently
+    # dropped, per 51-A) and separately in `unresolvable` so the prompt clause can point at it.
+    assert "seam_context_omitted" not in evidence["limitations"]
+    expected_entry = {
+        "path": _CONFIG_MODULE,
+        "channel_packages": [_NODE_PACKAGE],
+        "reason": "evidence_budget_unresolvable",
+    }
+    assert evidence["channel_seam"]["omitted"] == [expected_entry]
+    assert evidence["channel_seam"]["unresolvable"] == [expected_entry]
+    # A drop is still a drop: not one byte of the file reached the model input either way.
+    assert _CONFIG_MARKER not in client.calls[0][1]
+    review = update["artifacts"][0]
+    assert review.verdict == "approved"
+    assert not any(item.finding_id == "REVIEW_EVIDENCE_INCOMPLETE" for item in review.findings)
+    # Still recognised as "previously omitted" going forward, so a third attempt does not
+    # oscillate back to a fresh, blocking omission.
+    assert review.metadata["seam_evidence_budget_omitted_paths"] == [_CONFIG_MODULE]
+
+
 # --------------------------------------------------------------------------------------
 # T4 -- the detector truth table
 # --------------------------------------------------------------------------------------
