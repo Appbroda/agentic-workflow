@@ -15,6 +15,7 @@ from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.engine import CursorResult
 from sqlalchemy.exc import IntegrityError
 
+from services.process_runner import is_high_confidence_source_secret
 from state.enums import TERMINAL_FEATURE_STATUSES
 from state.external_operations import (
     REPLAY_REFUSED_STATUSES,
@@ -1374,13 +1375,32 @@ def _safe_error_message(message: str) -> str:
 
 
 def _safe_metadata(value: dict[str, Any]) -> dict[str, Any]:
-    """Reject credential-like keys before JSON persistence and preserve only JSON values."""
+    """Reject credential-like keys before JSON persistence and preserve only JSON values.
+
+    A credential-shaped key name alone used to be refused outright, regardless of what the
+    value under it actually was -- which made this indistinguishable from a reviewer's own
+    structured findings about authentication-handling code it was asked to review (AB-Feature
+    -182's backend: every `run_reviewer` call succeeded, then lost its result here, because
+    the review's own metadata named a field like `credential_check_passed`). The key alone is
+    still sufficient reason to look closer, but only a value that itself passes the same
+    high-confidence-secret check `redact_source_credentials` already uses turns that look into
+    a refusal. A non-string value (a bool, a count, nested structure) cannot be a credential
+    literal and is never blocked on the key name alone; nested dicts and lists are still
+    walked, so a real secret at a deeper level is still caught at its own key.
+    """
     prohibited = ("token", "secret", "password", "authorization", "api_key", "credential")
 
     def validate(item: Any) -> None:
         if isinstance(item, dict):
             for key, nested in item.items():
-                if not isinstance(key, str) or any(marker in key.lower() for marker in prohibited):
+                if not isinstance(key, str):
+                    msg = "credential-like values must not be stored in external operation metadata"
+                    raise ExternalOperationError(msg)
+                if (
+                    any(marker in key.lower() for marker in prohibited)
+                    and isinstance(nested, str)
+                    and is_high_confidence_source_secret(nested)
+                ):
                     msg = "credential-like values must not be stored in external operation metadata"
                     raise ExternalOperationError(msg)
                 validate(nested)

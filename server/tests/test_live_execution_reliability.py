@@ -100,6 +100,23 @@ async def test_operation_journal_commits_intent_results_and_append_only_events(
         ExternalOperationStatus.RUNNING,
         ExternalOperationStatus.SUCCEEDED,
     ]
+    # A credential-shaped key is not refused on its name alone: a value that cannot itself
+    # pass for a secret (too short, no word boundary to exempt it either) must still persist,
+    # or a reviewer's own commentary about authentication-handling code becomes
+    # indistinguishable from an actual leaked token (AB-Feature-182's backend, where this
+    # exact placeholder shape discarded a real, already-paid-for review result sixteen times
+    # running). Only a value that itself looks like a secret still blocks.
+    harmless = await journal.create_operation(
+        workflow_id="workflow-journal",
+        feature_id=None,
+        child_workflow_id=None,
+        repository_id=None,
+        operation_type=ExternalOperationType.RUN_TESTS,
+        idempotency_key="safe-despite-the-key-name",
+        input_fingerprint="safe-despite-the-key-name",
+        safe_metadata={"api_token": "must-not-persist"},
+    )
+    assert harmless.safe_metadata == {"api_token": "must-not-persist"}
     with pytest.raises(ExternalOperationError, match="credential-like"):
         await journal.create_operation(
             workflow_id="workflow-journal",
@@ -109,7 +126,7 @@ async def test_operation_journal_commits_intent_results_and_append_only_events(
             operation_type=ExternalOperationType.RUN_TESTS,
             idempotency_key="unsafe",
             input_fingerprint="unsafe",
-            safe_metadata={"api_token": "must-not-persist"},
+            safe_metadata={"api_token": "V7mQ2xL9pR4sT8wY3kN6dF1z"},
         )
 
 
