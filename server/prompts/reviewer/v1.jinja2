@@ -198,6 +198,13 @@ Rules:
   the request the change makes on what you can see, and do not attest that it agrees with a
   configuration nobody showed you.
 {%- endif %}
+{%- if seam_unresolvable | default([]) %}
+- `channel_seam.unresolvable` names seam files too large to show on a second consecutive
+  attempt, with nothing narrower to substitute: {{ seam_unresolvable | join(", ") }}. That is a
+  limitation of this evidence, not a fact about the code and not a finding -- do not attest
+  seam consistency with one of these, and do not raise your own finding asking for what this
+  platform has already declared it cannot show.
+{%- endif %}
 - A change that introduces a new call across a channel is approvable only if some test
   exercises it through the repository's real channel configuration against a boundary fake --
   an in-process stub the real client is pointed at, or the real route stack invoked

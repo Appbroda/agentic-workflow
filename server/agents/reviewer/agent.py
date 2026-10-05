@@ -448,6 +448,10 @@ class ReviewerAgent:
             # says the comparison could not be set up -- neither demands a verdict.
             seam_configuration_paths=workspace_evidence["seam_configuration_paths"],
             seam_configuration_unlocated=workspace_evidence["seam_configuration_unlocated"],
+            # Seam files a repeat omission already proved unresolvable (AB-Feature-176): named
+            # so the model does not raise its own finding over what this platform already
+            # declared it cannot show and will not block on.
+            seam_unresolvable=[item["path"] for item in workspace_evidence["seam_unresolvable"]],
             # 87- Part C's question, rendered only when there is something to ask about. A
             # change entirely inside what the plan declared produces the prompt it always did.
             undeclared_change_paths=workspace_evidence["undeclared_change_paths"],
@@ -565,14 +569,16 @@ class ReviewerAgent:
                     "seam_context_omitted": workspace_evidence["seam_omitted"],
                     # Plain paths, read back by `_previously_omitted_seam_paths` on the
                     # *next* attempt so a second consecutive omission of the same file can be
-                    # told from a first one. Includes this round's summarized paths as well as
-                    # its whole omissions: once a path has been flagged either way, it stays
-                    # on the summary path on every later attempt rather than oscillating back
-                    # to a whole omission the one attempt it happens to fit again.
+                    # told from a first one. Includes this round's summarized and unresolvable
+                    # paths as well as its whole omissions: once a path has been flagged any of
+                    # the three ways, it stays flagged on every later attempt rather than
+                    # oscillating back to a whole, blocking omission the one attempt it happens
+                    # to fit the ordinary check again.
                     "seam_evidence_budget_omitted_paths": [
                         item["path"] for item in workspace_evidence["seam_omitted"]
                     ]
-                    + [item["path"] for item in workspace_evidence["seam_summarized"]],
+                    + [item["path"] for item in workspace_evidence["seam_summarized"]]
+                    + [item["path"] for item in workspace_evidence["seam_unresolvable"]],
                     # What the reviewer was asked about that the workstream never declared
                     # (87- Part C). Durable because the question is only worth asking if
                     # somebody can later check whether it was answered: 218's frontend
@@ -1528,6 +1534,11 @@ async def _workspace_change_evidence(
                 "configuration_files": seam["configuration_paths"],
                 "configuration_not_located": seam["configuration_unlocated"],
                 "omitted": seam["omitted"],
+                # Also present in `omitted` (reason `evidence_budget_unresolvable`), named
+                # separately so the prompt can point at it directly: a repeat omission this
+                # platform already knows cannot resolve by asking again, declared per 51-A
+                # but not a finding -- see the matching prompt clause.
+                "unresolvable": seam["unresolvable_omitted"],
                 "co_importer_count": seam["co_importer_count"],
                 "truncated": seam["truncated"],
             },
@@ -1576,6 +1587,11 @@ async def _workspace_change_evidence(
         # summary path on every later attempt too, rather than oscillating back to a whole
         # omission the one attempt it happens to fit the ordinary check again.
         "seam_summarized": seam["summarized"],
+        # The other half of the same escalation, for a path with nothing to summarize
+        # instead (AB-Feature-176). Persisted the same way, for the same reason: once flagged
+        # unresolvable it must stay recognised as "previously omitted" on every later attempt,
+        # not revert to a fresh, blocking omission.
+        "seam_unresolvable": seam["unresolvable_omitted"],
         "seam_mock_notes": mock_notes,
         # 87- Part C's two lists, for the prompt clause and for the durable record: a review
         # that was asked about an undeclared path should be answerable about it afterwards.
@@ -1853,26 +1869,37 @@ def _channel_seam_evidence(
         redacted = redact_source_credentials(source)
         content = f"{_unchanged_source_banner(item.path)}\n{redacted}"
         if len(content) > per_file_max_characters or len(content) > budget:
-            if item.path in previously_omitted_seam_paths and item.configuration_calls:
-                summary_content = _channel_seam_summary_content(item)
-                if len(summary_content) <= budget:
-                    entries.append(
-                        {
-                            "path": item.path,
-                            "content_kind": "channel_seam_summary",
-                            "channel_packages": list(item.channel_packages),
-                            "configuration_calls": list(item.configuration_calls),
-                            "content": summary_content,
-                            "sha256": hashlib.sha256(redacted.encode("utf-8")).hexdigest(),
-                            "redacted": False,
-                        }
-                    )
-                    seam_paths.append(item.path)
-                    configuration_paths.append(item.path)
-                    summarized.append(
-                        {"path": item.path, "channel_packages": list(item.channel_packages)}
-                    )
-                    budget -= len(summary_content)
+            if item.path in previously_omitted_seam_paths:
+                if item.configuration_calls:
+                    summary_content = _channel_seam_summary_content(item)
+                    if len(summary_content) <= budget:
+                        entries.append(
+                            {
+                                "path": item.path,
+                                "content_kind": "channel_seam_summary",
+                                "channel_packages": list(item.channel_packages),
+                                "configuration_calls": list(item.configuration_calls),
+                                "content": summary_content,
+                                "sha256": hashlib.sha256(redacted.encode("utf-8")).hexdigest(),
+                                "redacted": False,
+                            }
+                        )
+                        seam_paths.append(item.path)
+                        configuration_paths.append(item.path)
+                        summarized.append(
+                            {"path": item.path, "channel_packages": list(item.channel_packages)}
+                        )
+                        budget -= len(summary_content)
+                        continue
+                else:
+                    # No configuration_calls to substitute -- a plain, oversized consumer of
+                    # the channel wrapper (CreateBatch.js/Batches.js, AB-Feature-176), not its
+                    # configurer. Its size cannot change between attempts (it is unchanged by
+                    # construction), so blocking on it forever is 51-A's "waited out" failure
+                    # the escalation exists to stop -- just the half configuration_calls never
+                    # covers. Declared, not silently dropped (see `unresolvable_omitted`
+                    # below), but no longer forced as a blocking finding every attempt.
+                    omit(item.path, item.channel_packages, "evidence_budget_unresolvable")
                     continue
             omit(item.path, item.channel_packages, "evidence_budget")
             continue
@@ -1911,6 +1938,14 @@ def _channel_seam_evidence(
         # Only the budget omissions raise `seam_context_omitted`: they are the platform's own
         # bound, and the finding tells the next attempt which file and package it means.
         "budget_omitted": [item for item in omitted if item["reason"] == "evidence_budget"],
+        # A repeat omission with nothing to summarize instead (AB-Feature-176: no
+        # `configuration_calls`, so the branch above has nothing narrower to quote). Named
+        # separately from `budget_omitted` for the same reason `summarized` is: this platform
+        # already knows retrying will not change it, so it must not keep raising
+        # `seam_context_omitted` as if it were a fresh, resolvable limitation.
+        "unresolvable_omitted": [
+            item for item in omitted if item["reason"] == "evidence_budget_unresolvable"
+        ],
         # Paths shown as a summary this round because a prior attempt already omitted them
         # whole for the same reason. Deliberately not in `omitted`/`budget_omitted`: a
         # summarized path was shown something, so it does not raise `seam_context_omitted`
