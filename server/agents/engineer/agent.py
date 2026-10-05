@@ -1160,12 +1160,21 @@ class EngineerAgent:
                 # In the message, not in `extra`: the deployment's plain formatter drops
                 # `extra`, and §1.6 needed journal-timestamp forensics to establish the
                 # repair had run at all. That must never be necessary again.
+                #
+                # `executor` is which of the two possible roles this unjournaled call used --
+                # scoped_fix when configured, the primary coding role otherwise -- named
+                # directly because a transport fault here is reraised as itself (below) and
+                # charged to the child-workstream fault budget, so the only place this role is
+                # ever recorded is this sentence. Without it, which model is actually
+                # implicated took a database forensic pass to recover.
                 _LOGGER.warning(
                     "engineer source repair did not run: pass %d raised %s against %d "
-                    "diagnostic(s) [outcome=repair_model_error agent=engineer]",
+                    "diagnostic(s) [outcome=repair_model_error agent=engineer "
+                    "executor=%s]",
                     pass_number,
                     type(model_error).__name__,
                     len(error.diagnostics),
+                    "scoped_fix" if self._scoped_fix_executor is not None else "coding_fallback",
                 )
                 if is_transport_fault(model_error):
                     # The transport failed, so this attempt has no verdict about its source

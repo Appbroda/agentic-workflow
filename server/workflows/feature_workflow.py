@@ -8,6 +8,7 @@ import inspect
 import json
 import re
 import time
+import traceback
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
@@ -218,7 +219,15 @@ type FeatureEventWriter = Callable[[str, str, dict[str, Any]], Awaitable[None]]
 # Four, and a wait that grows. Two flat five-second retries did not outlast a real blip:
 # -077's backend took three provider failures inside four minutes on one attempt, exhausted
 # the allowance, and ended holding two test-coverage findings it was close to clearing.
-_ALLOWED_INFRASTRUCTURE_FAULTS = 4
+#
+# TEMPORARY, 2026-10-05: dropped to 1 (two total attempts) for faster diagnostic turnaround
+# while chasing a suspected scoped_fix-role (gpt-5.3-codex) provider-health issue on
+# admanager_console-2.0 -- the new `executor=` token on the repair-pass fault log
+# (agents/engineer/agent.py's `_repair_until_verified`) needs only a couple of occurrences to
+# confirm or rule out that role. Revert to 4 once that data is in hand; the -077 regression
+# this constant guards against is real and this deployment is knowingly exposed to it until
+# then.
+_ALLOWED_INFRASTRUCTURE_FAULTS = 1
 _INFRASTRUCTURE_FAULT_BACKOFF_SECONDS = 5.0
 # What the same allowance is worth when the fault cost no model spend. A model call that
 # failed is a stalled attempt an operator is waiting on, so its tail stays short: 5, 10, 20,
@@ -348,6 +357,18 @@ _FAULT_CAUSE_WALK_LIMIT = 8
 _SECONDS_PER_MINUTE = 60
 _SECONDS_PER_HOUR = 60 * 60
 _SECONDS_PER_DAY = 24 * 60 * 60
+
+
+def _bounded_cause_chain(error: BaseException) -> list[BaseException]:
+    """Return this error and its cause chain, for naming by type only, bounded the same way."""
+    chain: list[BaseException] = []
+    current: BaseException | None = error
+    for _ in range(_FAULT_CAUSE_WALK_LIMIT):
+        if current is None:
+            break
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    return chain
 
 
 def _deterministic_provider_error(error: BaseException) -> BaseException | None:
@@ -4391,6 +4412,27 @@ class FeatureWorkflowOrchestrator:
                     raise
                 infrastructure_faults += 1
                 fault = _fault_label(error)
+                # TEMPORARY, 2026-10-05: full detail for a bare ExternalOperationError that
+                # matches no named subclass -- every likely candidate (lease loss,
+                # reconciliation-required) was already ruled out by type name alone, so the
+                # next occurrence needs the actual file:line and message. Safe to log here
+                # specifically: every bare-class raise site in
+                # storage/external_operation_store.py builds its message from platform-owned
+                # strings and internal identifiers, never provider/adapter text -- unlike
+                # `_fault_label`, which avoids logging any message because most callers are
+                # not this narrow. The cause chain is still named by type only, for that same
+                # reason. Revert alongside the lowered fault budget once the raise site is
+                # identified.
+                origin = traceback.extract_tb(error.__traceback__)
+                _LOGGER.warning(
+                    "child_workstream_fault_detail",
+                    feature_id=state.feature_id,
+                    repository_id=repository.repository_id,
+                    fault_type=type(error).__name__,
+                    fault_message=str(error),
+                    raised_at=f"{origin[-1].filename}:{origin[-1].lineno}" if origin else None,
+                    cause_chain=[type(item).__name__ for item in _bounded_cause_chain(error)],
+                )
                 if fault not in fault_classes:
                     fault_classes.append(fault)
                 if infrastructure_faults > _ALLOWED_INFRASTRUCTURE_FAULTS:
