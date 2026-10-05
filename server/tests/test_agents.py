@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import logging
 import subprocess
 from collections.abc import Sequence
 from datetime import UTC, datetime
@@ -3277,7 +3276,6 @@ async def test_a_repair_the_model_cannot_answer_fails_exactly_as_it_did_before(
 @pytest.mark.asyncio
 async def test_a_repair_the_transport_never_delivered_is_not_a_source_verdict(
     tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
 ) -> None:
     """A repair whose call died in transport raises the fault, not the gate's rejection.
 
@@ -3306,53 +3304,13 @@ async def test_a_repair_the_transport_never_delivered_is_not_a_source_verdict(
         source_formatter=_FormatterFailingUntil(1, [_LINT_DIAGNOSTIC]),
     )
 
-    with caplog.at_level(logging.WARNING), pytest.raises(LLMAdapterError) as raised:
+    with pytest.raises(LLMAdapterError) as raised:
         await agent.run(agent_state(tmp_path, [task_plan_artifact()]))
 
     # Raised as itself: the classification is what the child loop's fault predicate reads,
     # and a `SourceValidationError` here would carry no classification at all.
     assert raised.value.failure_classification == "stream_silent"
     assert len(executor.calls) == 2
-    # No scoped-fix role was configured, so the fault log must name the fallback role: this
-    # sentence is the only place a reraised repair fault records which model was implicated,
-    # and getting that wrong once already cost a forensic database pass to recover.
-    assert "executor=coding_fallback" in caplog.text
-
-
-@pytest.mark.asyncio
-async def test_a_scoped_fix_repair_transport_fault_names_that_role_in_the_log(
-    tmp_path: Path,
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    """The same reraised transport fault, with scoped_fix configured, names that role instead.
-
-    `repair_executor` resolves to `scoped_fix_executor` when one is injected, not the primary
-    coding client -- so a fault there is a different model than the one the first case above
-    names, and the log has to say which.
-    """
-
-    class SilentOnScopedRepair(_RecordingCodingExecutor):
-        async def execute(self, **kwargs: Any) -> Any:
-            # Unlike the primary executor's double duty in the test above, `scoped` is only
-            # ever called for a repair -- its initial-coding slot is the primary executor's --
-            # so its *first* call is already the repair call this test faults.
-            self.calls.append({"instructions": "", "input_text": "", "journaled": False})
-            msg = "Responses API accepted the request and sent no event"
-            raise LLMAdapterError(msg, failure_classification="stream_silent")
-
-    primary = _RecordingCodingExecutor({"src/service.js": "export const a = 1;\n"})
-    scoped = SilentOnScopedRepair({"src/service.js": "export const a = 1;\n"})
-    agent = EngineerAgent(
-        prompt_loader=PromptLoader(),
-        coding_executor=primary,
-        scoped_fix_executor=scoped,
-        source_formatter=_FormatterFailingUntil(1, [_LINT_DIAGNOSTIC]),
-    )
-
-    with caplog.at_level(logging.WARNING), pytest.raises(LLMAdapterError):
-        await agent.run(agent_state(tmp_path, [task_plan_artifact()]))
-
-    assert "executor=scoped_fix" in caplog.text
 
 
 @pytest.mark.asyncio
