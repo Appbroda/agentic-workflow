@@ -359,7 +359,7 @@ def redact_source_credentials(value: str) -> str:
 
     def replace_bearer(match: re.Match[str]) -> str:
         token = match.group(2)
-        if not is_high_confidence_source_secret(token):
+        if not _is_high_confidence_source_secret(token):
             return match.group(0)
         return f"{match.group(1)}[REDACTED]"
 
@@ -372,7 +372,7 @@ def redact_source_credentials(value: str) -> str:
         credentials = tuple(item for item in (parsed.username, parsed.password) if item is not None)
         return (
             "[REDACTED]"
-            if any(is_high_confidence_source_secret(item) for item in credentials)
+            if any(_is_high_confidence_source_secret(item) for item in credentials)
             else uri
         )
 
@@ -384,7 +384,7 @@ def redact_source_credentials(value: str) -> str:
         if (
             not normalized_key.endswith(_SOURCE_SENSITIVE_KEY_SUFFIXES)
             or opening != closing
-            or not is_high_confidence_source_secret(literal)
+            or not _is_high_confidence_source_secret(literal)
         ):
             return match.group(0)
         return f"{match.group(1)}{opening}[REDACTED]{closing}"
@@ -395,13 +395,8 @@ def redact_source_credentials(value: str) -> str:
     return _redact_known_environment_secrets(redacted)
 
 
-def is_high_confidence_source_secret(value: str) -> bool:
-    """Distinguish credential literals from common test and documentation placeholders.
-
-    Public rather than module-private: `storage/external_operation_store.py` reuses this
-    exact check to decide whether a journal metadata value under a credential-shaped key
-    actually looks like a secret, rather than blocking on the key name alone.
-    """
+def _is_high_confidence_source_secret(value: str) -> bool:
+    """Distinguish credential literals from common test and documentation placeholders."""
     candidate = value.strip()
     if not candidate or candidate == "[REDACTED]":
         return False
@@ -592,7 +587,6 @@ __all__ = [
     "AsyncioProcessRunner",
     "ProcessResult",
     "ProcessRunner",
-    "is_high_confidence_source_secret",
     "redact_output",
     "redact_source_credentials",
     "repository_subprocess_environment",
