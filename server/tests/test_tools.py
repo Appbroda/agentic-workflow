@@ -43,6 +43,7 @@ from tools.validation_tools import (
     _HeadAndTail,
     _result,
     _summary_with_references,
+    _without_rendered_markup_dumps,
     _workspace_validation_commands,
     run_pytest,
     run_ruff,
@@ -1189,6 +1190,58 @@ def test_a_tail_bounded_report_still_names_the_file_the_head_saw(tmp_path: Path)
     assert "src/pages/AllApps.test.js" in references
     # Package-store internals are not files a repair may edit, even when present on disk.
     assert "react-dom.development.js" not in references
+
+
+def _component_dump_crash_output(*, dump_lines: int = 400) -> str:
+    """A React-Testing-Library-shaped failure: the assertion at the head, a DOM dump after.
+
+    This is AB-Feature-186's failure shape. Unlike `_framework_crash_output`'s package-store
+    stack frames, a `prettyDOM`-style dump names no file at all, so it passes
+    `_names_only_package_store_files` unfiltered and -- being far larger than the budget on
+    its own -- dominates a plain tail-bound, pushing the assertion above it out entirely.
+    """
+    tag_line = "                  \x1b[36m<div\x1b[39m"
+    attribute_line = (
+        "                    \x1b[33mclass\x1b[39m="
+        '\x1b[32m"MuiOutlinedInput-root MuiInputBase-root"\x1b[39m'
+    )
+    dump = "\n".join(tag_line if i % 2 == 0 else attribute_line for i in range(dump_lines))
+    return (
+        "FAIL src/components/serviceRequests/CreateServiceRequestModel.test.js\n"
+        "  ● CreateServiceRequestModel › submits only the selected statuses\n\n"
+        "    TestingLibraryElementError: Unable to find an element with the text: "
+        "Service type.\n"
+        "      68 |   render(<CreateServiceRequestModel />);\n"
+        "    > 70 |   expect(screen.getByText('Service type')).toBeInTheDocument();\n"
+        f"{dump}\n"
+        "Tests:       1 failed, 3 passed, 4 total\n"
+    )
+
+
+def test_a_rendered_markup_dump_does_not_crowd_out_the_assertion_it_follows() -> None:
+    """A component-testing dump is collapsed before bounding, the same way stack frames are.
+
+    AB-Feature-186's frontend rewrote the same files on three straight attempts and never
+    converged, because every one of these failures reached it as a multi-kilobyte DOM dump
+    with the actual `TestingLibraryElementError` line nowhere in the kept tail.
+    """
+    collapsed = _without_rendered_markup_dumps(_component_dump_crash_output())
+
+    assert "Unable to find an element with the text: Service type" in collapsed
+    assert "rendered component markup omitted" in collapsed
+    assert "MuiOutlinedInput-root" not in collapsed
+
+    result = ValidationResult(
+        command=("npm", "run", "test"),
+        return_code=1,
+        stdout=_component_dump_crash_output(),
+        stderr="",
+        timed_out=False,
+        duration_seconds=1.2,
+        validation_type="test",
+    )
+
+    assert "Unable to find an element with the text: Service type" in result.stdout_summary
 
 
 def test_workspace_references_promote_the_product_file_into_repair_regions(

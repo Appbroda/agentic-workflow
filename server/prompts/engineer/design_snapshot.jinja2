@@ -1,0 +1,44 @@
+
+The design this workstream builds (the frames the author attached to the request, resolved
+once, and assigned to this workstream by the approved plan):
+{{ design_snapshot }}
+
+That block is the design, not a summary of it, and its **names** are what it is for. Where a
+frame gives a `style_names` entry, a `component` name or a `set` name, use the thing that name
+refers to in this repository rather than the value beside it: a hex code tells you what to
+hardcode, and `color/surface/raised` tells you what this repository already has and what this
+change must reuse. Search the checkout for the name; if the repository genuinely has nothing
+under it, say so in `summary` and use the resolved value.
+
+{%- if design_pictures | default(0) %}
+{{ design_pictures }} rendering(s) of those frames accompany this request as images, in the
+order the frames are listed above. Build to the picture *and* to the block: the picture tells
+you what it should look like, and the block is where the exact values live -- take spacing,
+type, colour and radius from the block rather than estimating them from pixels. Where the two
+disagree, the block is the design; the picture is a rendering of it.
+
+The rendering is the whole frame. A part of it another workstream builds is not yours to
+implement, and the plan above is what decides which part is.
+{%- else %}
+Build to its text and not to an appearance you cannot see: the layout it declares, the spacing
+it declares, the states its variants draw, and the characters its text nodes actually contain.
+{%- endif %}
+
+A node with an `asset_path` is an image the design fills it with, and that file has **already
+been written into this checkout** -- exported and placed by the platform before you were
+called, into whichever directory this repository already keeps its images in. Find it by its
+filename and reference it exactly the way this repository references its other images.
+
+Do not try to move, copy or rename it: your tools write text, so you cannot relocate a binary
+file, and a reference to a path you "moved" it to points at nothing. Do not invent a
+placeholder in its place and do not try to fetch anything. A node whose fill is
+`{"type": "IMAGE"}` with no `asset_path` is one the platform could not export: say so in
+`summary` rather than inventing artwork for it.
+
+`design_nodes_omitted` names frames you were **not** shown, with the reason and the size --
+implement those from the plan's prose and say in `summary` that you did.
+`design_nodes_absent` names frames the design file does not define and `design_nodes_unreachable`
+names frames this deployment could not read: do not invent either, and say so in `summary`.
+`design_nodes_not_in_snapshot` names frames the plan assigned that this design has never
+contained at all, which is a defect in the plan rather than in the design; report it in
+`summary` and implement nothing for it.

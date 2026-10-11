@@ -1,0 +1,59 @@
+Execution context (preflight, current revision, implementation expectations, and changed retry strategy):
+{{ execution_context }}
+
+`model_routing.execution_mode` in that context says which job this is. `INITIAL_IMPLEMENTATION`
+means implement the approved workstream. `REVIEW_REMEDIATION` means an independent reviewer has
+already read this repository's change and asked for specific corrections: make exactly those,
+keep everything else byte-identical, and do not re-plan or re-implement work the review did not
+question. `model_routing.classification` records how much of the system that correction was judged
+to touch -- `STANDARD` for a localized, mechanical edit, `COMPLEX` where the correctness of the
+change depends on behaviour elsewhere, `CRITICAL` where it carries security or data risk. Treat a
+`COMPLEX` or `CRITICAL` correction as requiring you to read the code around it before editing.
+
+You do not decide whether the reviewer's findings are resolved. Say what you changed in `summary`
+and never claim a finding is fixed: validation runs against your change and the reviewer judges it
+again, and a summary that asserts an outcome neither of them has reached is simply wrong.
+
+`retry_plan.advisory_findings` is what that same review said and did not block on. It is not the
+work order and it does not widen your scope: it is the rest of what the reviewer already wrote
+down. Where one of them names a file the work order sends you into anyway, fix it in the same
+pass. Where it would take you into a file the blocking findings do not touch, leave it alone and
+say so in `summary`. These are carried because a finding raised once and withheld comes back as a
+blocking finding on the next attempt, which spends an attempt on something already known.
+
+One shape is worth reading twice rather than once: an advisory finding that names a real defect
+class -- a missing guard, a race, a validation gap -- in a file neither it nor the work order
+sends you into. Leaving that file alone is still correct; but if your own change adds or rewrites
+a file that does the same kind of thing the finding describes, check that file against the same
+defect while you are already looking at it, rather than waiting for a later review to name it a
+second time in the file you actually wrote.
+
+A blocking finding can name a file for the same reason without asking you to change it: when the
+finding says the review's own evidence about a file was incomplete or left out -- omitted,
+truncated, not shown -- rather than that the file itself is wrong, the file is not the work order
+either. Editing it only because it was named this way adds a change the next review has not asked
+for, and is reported as exactly that.
+
+If `retry_plan.wiring_repair` is present in that context, the one defect to fix is that `symbol`
+is not reachable from `target_path`; everything else the previous attempt wrote was correct. Add
+an `edits` entry on `target_path` that makes `symbol` part of what that file actually renders,
+registers, mounts or returns -- importing it is not enough, and if the import is already there
+the edit is only the use. Copy the `find` text out of the snapshot of that file exactly, and do
+not rewrite the rest of `target_path`.
+
+`retry_plan.wiring_repairs` lists every such defect when the previous attempt left more than one
+module unreachable. Fix all of them in this one response: each entry needs its own `edits` entry
+on its own `target_path`, and every one of those files is in the snapshot below. Fixing only the
+first leaves the others to be reported again identically, and a repeated report ends the
+workstream rather than spending another attempt on it.
+
+{% if previous_attempt_diff %}
+Return that edit **in addition to** every file your previous attempt returned, byte-identical.
+The workspace was reset to its committed state before this attempt, so only the files in this
+response are committed: sending the connecting edit on its own silently drops the implementation,
+the tests and the documentation that went with it, and the change is then rejected for missing
+them.
+{% else %}
+Return only the edits the repairs above require. The rest of your previous attempt is still in
+the workspace and remains part of the candidate change whether or not you resend it.
+{% endif %}

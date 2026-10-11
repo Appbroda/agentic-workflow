@@ -96,6 +96,63 @@ _PACKAGE_STORE_SEGMENTS = frozenset(
     {"node_modules", "site-packages", "dist-packages", "vendor", ".venv", "venv"}
 )
 
+_ANSI_ESCAPE = re.compile(r"\x1b\[[0-9;]*m")
+
+# One `pretty-format`/`prettyDOM`-style line: a single HTML/JSX tag, or a single
+# attribute="value" pair, printed alone and heavily indented -- the shape React Testing
+# Library (and comparable component-testing libraries) auto-print on certain assertion
+# failures. AB-Feature-186's frontend spent three attempts never shown why a test failed
+# because a dump in this shape, unlike a package-store stack frame, names no file at all and
+# so passed straight through `_names_only_package_store_files` unfiltered, then dominated the
+# tail-bounded excerpt on its own, pushing out the assertion line the test runner printed
+# before it.
+_RENDERED_MARKUP_LINE = re.compile(
+    r"""^\s*(</?[A-Za-z][\w.:-]*\s*/?>?|[\w-]+=(['"]).*?\2/?>?)\s*$"""
+)
+
+# How many consecutive markup-shaped lines make a dump worth collapsing, rather than a
+# one-off tag that happens to appear inside a real error message.
+_MIN_MARKUP_RUN_LINES = 8
+
+
+def _is_rendered_markup_line(line: str) -> bool:
+    """Return whether one line is shaped like a single pretty-printed tag or attribute."""
+    return bool(_RENDERED_MARKUP_LINE.match(_ANSI_ESCAPE.sub("", line)))
+
+
+def _without_rendered_markup_dumps(output: str) -> str:
+    """Collapse a contiguous run of rendered-markup lines to one placeholder line.
+
+    Mirrors why `_names_only_package_store_files` drops file-heavy noise before bounding: a
+    dump in this shape is frequently many kilobytes, and left in place it is what a
+    tail-bounded excerpt keeps, not the defect. Collapsing it first restores the same
+    property for a different kind of noise -- one that, unlike a stack frame, names no file
+    and so would otherwise never be recognized as noise at all.
+    """
+    lines = output.splitlines()
+    kept: list[str] = []
+    run_start: int | None = None
+
+    def _flush(end: int) -> None:
+        run_length = end - cast(int, run_start)
+        if run_length >= _MIN_MARKUP_RUN_LINES:
+            kept.append(f"[... {run_length} lines of rendered component markup omitted ...]")
+        else:
+            kept.extend(lines[run_start:end])
+
+    for index, line in enumerate(lines):
+        if _is_rendered_markup_line(line):
+            if run_start is None:
+                run_start = index
+            continue
+        if run_start is not None:
+            _flush(index)
+            run_start = None
+        kept.append(line)
+    if run_start is not None:
+        _flush(len(lines))
+    return "\n".join(kept)
+
 
 class ValidationStatus(StrEnum):
     """Semantically meaningful validation outcomes used by reviewers and APIs."""
@@ -1312,7 +1369,8 @@ def _bounded_summary(output: str) -> str:
     redacted = redact_output(output)
     if len(redacted) <= _MAX_SUMMARY_CHARACTERS:
         return redacted
-    return f"[truncated]\n{redacted[-_MAX_SUMMARY_CHARACTERS:]}"
+    collapsed = _without_rendered_markup_dumps(redacted)
+    return f"[truncated]\n{collapsed[-_MAX_SUMMARY_CHARACTERS:]}"
 
 
 def _workspace_reference_lines(redacted_output: str, workspace_root: Path) -> list[str]:
@@ -1426,17 +1484,21 @@ def _names_only_package_store_files(line: str) -> bool:
 def _bounded_workspace_tail(redacted_output: str) -> str:
     """Bound a failing report to its tail, spending the budget on workspace lines.
 
-    When the output exceeds the budget, lines whose only file tokens point into package
-    stores are dropped first -- a Jest component crash carries dozens of framework frames
-    between the failure and the suite summary, and they crowd the frames that name the
-    defect out of a plain tail. Lines naming no file at all are kept: error messages and
+    When the output exceeds the budget, two kinds of noise are dropped first, before the
+    tail-slice: lines whose only file tokens point into package stores (a Jest component
+    crash carries dozens of framework frames between the failure and the suite summary, and
+    they crowd the frames that name the defect out of a plain tail), and a rendered-markup
+    dump collapsed to one placeholder line (`_without_rendered_markup_dumps` -- a component
+    testing library's auto-printed DOM, which names no file and so the first filter alone
+    would never catch it). Lines naming no file and no markup are kept: error messages and
     assertion diffs are the defect's description. If filtering empties the report, fall
     back to the unfiltered tail -- a noisy record beats an empty one.
     """
     if len(redacted_output) <= _MAX_SUMMARY_CHARACTERS:
         return redacted_output
+    collapsed = _without_rendered_markup_dumps(redacted_output)
     kept = "\n".join(
-        line for line in redacted_output.splitlines() if not _names_only_package_store_files(line)
+        line for line in collapsed.splitlines() if not _names_only_package_store_files(line)
     )
     if not kept.strip():
         kept = redacted_output
