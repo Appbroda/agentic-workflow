@@ -133,6 +133,12 @@ from storage.external_operation_store import (
     OperationTransitionConflictError,
 )
 from tools.acceptance_criteria import unverifiable_criteria
+from tools.api_surface import (
+    EndpointMismatch,
+    diff_endpoint_manifests,
+    extract_referenced_endpoints,
+    extract_registered_routes,
+)
 from tools.implementation_completeness import ImplementationCompletenessResult, meaningful_progress
 from tools.llm_call_record import last_llm_call_payload, reset_llm_call_record
 from tools.model_routing import (
@@ -3524,20 +3530,34 @@ class FeatureWorkflowOrchestrator:
         )
         review = _persisted_integration_review(state, input_signature=input_signature)
         if review is None:
-            # Journaled like every other pre-coding-shaped call: a hung seam review is a row
-            # with a widening started_at->heartbeat_at gap instead of silence (AB-Feature-174).
-            review = await self._journaled_planning_call(
-                state,
-                operation_type=ExternalOperationType.RUN_INTEGRATION_REVIEW,
-                stage="integration_review",
-                call=lambda: self._integration_reviewer.review(
+            # Checked before any model call, not after: a deterministic cross-repository
+            # mismatch (AB-Feature-184's `/v1` defect generalized) doesn't need an LLM to
+            # restate it, so finding one here skips that call entirely for this round.
+            manifest_mismatches = _cross_repository_endpoint_mismatches(contract, child_results)
+            if manifest_mismatches:
+                review = _synthetic_integration_review_from_mismatches(
                     feature_id=state.feature_id,
                     contract=contract,
                     child_results=child_results,
                     merge_order=integration_merge_order,
-                ),
-                safe_input={"repository_ids": sorted(ready_repository_ids)},
-            )
+                    mismatches=manifest_mismatches,
+                )
+            else:
+                # Journaled like every other pre-coding-shaped call: a hung seam review is a
+                # row with a widening started_at->heartbeat_at gap instead of silence
+                # (AB-Feature-174).
+                review = await self._journaled_planning_call(
+                    state,
+                    operation_type=ExternalOperationType.RUN_INTEGRATION_REVIEW,
+                    stage="integration_review",
+                    call=lambda: self._integration_reviewer.review(
+                        feature_id=state.feature_id,
+                        contract=contract,
+                        child_results=child_results,
+                        merge_order=integration_merge_order,
+                    ),
+                    safe_input={"repository_ids": sorted(ready_repository_ids)},
+                )
             review_attempt = sum(
                 isinstance(artifact, IntegrationReviewArtifact) for artifact in state.artifacts
             )
@@ -6715,6 +6735,113 @@ def require_resumable_feature(state: FeatureWorkflowSnapshot) -> None:
         # repository stopped its healthy siblings from ever being resumed at all.
         msg = "every workstream has already reached a terminal retry decision"
         raise FeatureResumeNotEligible(msg)
+
+
+def _cross_repository_endpoint_mismatches(
+    contract: IntegrationContractArtifact,
+    child_results: Sequence[ChildWorkflowResultArtifact],
+) -> list[EndpointMismatch]:
+    """Mechanically diff each repository's real source against the contract's endpoints.
+
+    Generalizes AB-Feature-184's `/v1` defect: rather than one hand-written check for that one
+    prefix, every ready repository's own changed production files are scanned, independently,
+    for both an API consumer's literal path references and a provider's real route
+    registrations -- a repository can show up on either side, since this does not assume which
+    role a repository plays. Deterministic and local: real files already on this host's
+    workspace checkout, no network call, no model call.
+    """
+    consumer_refs_by_repository: dict[str, list[Any]] = {}
+    provider_routes_by_repository: dict[str, list[Any]] = {}
+    for child_result in child_results:
+        workspace = Path(child_result.workspace_path)
+        changed_files = child_result.production_files_changed
+        consumer_refs_by_repository[child_result.repository_id] = extract_referenced_endpoints(
+            workspace, changed_files
+        )
+        provider_routes_by_repository[child_result.repository_id] = extract_registered_routes(
+            workspace, changed_files
+        )
+    return diff_endpoint_manifests(
+        contract, consumer_refs_by_repository, provider_routes_by_repository
+    )
+
+
+def _synthetic_integration_review_from_mismatches(
+    *,
+    feature_id: str,
+    contract: IntegrationContractArtifact,
+    child_results: Sequence[ChildWorkflowResultArtifact],
+    merge_order: list[str],
+    mismatches: Sequence[EndpointMismatch],
+) -> IntegrationReviewArtifact:
+    """Build the same artifact shape the LLM reviewer would, from a deterministic finding.
+
+    A manifest mismatch does not need a model to restate it, so this skips that call for the
+    round entirely -- a net efficiency gain, not just an additional check -- while routing
+    through every existing downstream mechanism (attempt-id assignment, remediation feedback,
+    cycle budget, repository routing) completely unmodified, by handing it a review shaped
+    exactly like one.
+    """
+    findings = [
+        IntegrationReviewFinding(
+            finding_id=f"endpoint-manifest-{mismatch.operation_id}",
+            severity="critical",
+            responsible_repository_id=(
+                mismatch.non_confirming_repository_ids[0]
+                if mismatch.non_confirming_repository_ids
+                else merge_order[0]
+            ),
+            affected_repository_ids=sorted({item.repository_id for item in child_results}),
+            contract_reference=mismatch.operation_id,
+            description=(
+                f"Contract endpoint {mismatch.contract_path} is not confirmed by every "
+                "repository's own real source."
+            ),
+            evidence=mismatch.detail,
+            recommended_fix=(
+                "Make the consuming repository's call and the providing repository's "
+                f"registered route both match the contract's exact path: {mismatch.contract_path}."
+            ),
+        )
+        for mismatch in mismatches
+    ]
+    return IntegrationReviewArtifact.model_validate(
+        {
+            "schema_version": "1.0",
+            "workflow_id": feature_id,
+            "artifact_id": "012_integration_review.endpoint-manifest.json",
+            "producer": "endpoint_manifest_diff",
+            "timestamp": datetime.now(UTC),
+            "validation_status": "valid",
+            "artifact_type": "integration_review",
+            "feature_id": feature_id,
+            "contract_artifact_id": contract.artifact_id,
+            "review_status": "changes_requested",
+            "repository_results": [
+                {
+                    "repository_id": item.repository_id,
+                    "child_workflow_id": item.child_workflow_id,
+                    "status": item.status,
+                    "child_result_artifact_id": item.artifact_id,
+                }
+                for item in child_results
+            ],
+            "contract_checks": [
+                "Contract-conformance was checked by mechanically diffing every ready "
+                "repository's own changed production files against the contract's endpoints, "
+                "not only against the contract's declared text.",
+            ],
+            "cross_repository_findings": findings,
+            "compatibility_assessment": (
+                "Not assessed by a model this round: a deterministic endpoint-manifest "
+                "mismatch was found first and takes precedence."
+            ),
+            "security_assessment": "Not assessed by a model this round.",
+            "deployment_assessment": "Not assessed by a model this round.",
+            "merge_order": merge_order,
+            "required_fixes": [mismatch.detail for mismatch in mismatches],
+        }
+    )
 
 
 def _integration_merge_order(

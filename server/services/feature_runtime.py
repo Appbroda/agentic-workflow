@@ -120,6 +120,7 @@ from storage.db import Database
 from storage.external_operation_store import ExternalOperationJournal, OperationResult
 from storage.models import FeatureWorkflowModel, RepositorySpecModel
 from tools.assigned_file_conformance import RepositoryAssignedFileChecker
+from tools.contract_lint import SpectralContractLinter
 from tools.contract_tools import OpenAPIContractCodeGenerator
 from tools.cross_repository_diffs import RepositoryChange, bounded_repository_change
 from tools.dependency_sync import RepositoryToolSynchronizer
@@ -3358,6 +3359,7 @@ class _LiveOrchestratorContext:
             prompt_loader=_prompt_loader(),
             llm_client=client("planner"),
             contract_generator=OpenAPIContractCodeGenerator(),
+            contract_linter=SpectralContractLinter(),
             plan_task_dependencies=self._settings.plan_task_dependencies,
         )
         child_executor = LiveChildWorkstreamExecutor(

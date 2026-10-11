@@ -33,6 +33,7 @@ from artifacts.schemas import (
 from prompts.prompt_loader import PromptLoader
 from state.enums import DeploymentStrategy, MergeStrategy, WorkstreamRole
 from state.feature_models import RepositorySpec
+from tools.contract_lint import ContractLinter, SpectralContractLinter
 from tools.contract_tools import (
     ContractCodeGenerator,
     MockContractCodeGenerator,
@@ -114,6 +115,7 @@ class FeaturePlannerAgent:
         prompt_loader: PromptLoader,
         llm_client: LLMClient,
         contract_generator: ContractCodeGenerator | None = None,
+        contract_linter: ContractLinter | None = None,
         # Off by default, and deliberately temporary in the same sense `bounded_review_scope`
         # is: with it off the prompt renders byte-identically to before this existed, and every
         # plan is built exactly as it is built today. See `configs/settings.py` for why.
@@ -123,6 +125,7 @@ class FeaturePlannerAgent:
         self._prompt_loader = prompt_loader
         self._llm_client = llm_client
         self._contract_generator = contract_generator or OpenAPIContractCodeGenerator()
+        self._contract_linter = contract_linter or SpectralContractLinter()
         self._plan_task_dependencies = plan_task_dependencies
 
     async def plan(
@@ -308,6 +311,7 @@ class FeaturePlannerAgent:
         openapi_document = await self._contract_generator.generate_openapi(contract)
         if openapi_document is not None:
             contract = contract.model_copy(update={"openapi_document": openapi_document})
+            await _require_contract_lints_clean(self._contract_linter, openapi_document)
         plan_payload = _object(payload, "repository_execution_plan")
         plan_payload["feature_id"] = feature_id
         plan_payload["contract_artifact_id"] = contract.artifact_id
@@ -535,6 +539,37 @@ def _ensure_plan_names_only_real_design_nodes(
         f"{available or 'no frames at all'}."
     )
     raise AgentArtifactError(msg, stage="feature_planner")
+
+
+async def _require_contract_lints_clean(
+    contract_linter: ContractLinter, openapi_document: dict[str, Any]
+) -> None:
+    """Reject a contract that fails its own structural/protocol linting.
+
+    AB-Feature-184 shipped a GET endpoint whose contract required an empty request body --
+    nothing downstream ever questioned the contract's own quality, because every later check
+    only verifies that code conforms to it. This is that missing check, run here so a defect is
+    repaired before any repository writes a line of code against it.
+
+    Only `error`-severity findings block: `spectral:oas`'s own built-in ruleset includes many
+    `warn`/`info`/`hint`-level style suggestions (missing descriptions, and similar) that would
+    make the bounded repair loop fire on trivial nits rather than real defects.
+    """
+    findings = [
+        finding
+        for finding in await contract_linter.lint(openapi_document)
+        if finding.severity == "error"
+    ]
+    if not findings:
+        return
+    detail = "; ".join(
+        f"{finding.rule} at {finding.path or '(document root)'}: {finding.message}"
+        for finding in findings
+    )
+    msg = f"the generated contract fails its own structural validation: {detail}"
+    # Safe to persist: every interpolated value is Spectral's own rule id/path/message
+    # describing this platform's own generated JSON document, never model or provider text.
+    raise AgentArtifactError(msg, diagnostics=[detail], stage="feature_planner")
 
 
 def _ensure_plan_names_only_real_contract_sections(

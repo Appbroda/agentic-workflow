@@ -869,6 +869,42 @@ async def test_a_workstream_may_not_be_told_to_build_a_contract_section_that_doe
 
 
 @pytest.mark.asyncio
+async def test_a_get_endpoint_requiring_a_request_body_is_repaired_not_shipped() -> None:
+    """AB-Feature-184's exact reproduction, caught before any repository writes code.
+
+    The contract specified a GET endpoint whose own body schema required an empty object --
+    nothing downstream ever questioned it, so both repositories implemented it faithfully and
+    the defect reached production. This exercises the real `SpectralContractLinter` (not a
+    fake process runner), proving the wiring end to end: the planner's own bounded repair path
+    catches it the same way it already catches an invented contract section.
+    """
+    plan = _contract_section_plan(implemented=["getServerStatus"], consumed=["getServerStatus"])
+    invalid = _planning_response_with_contract(plan, operation_ids=["getServerStatus"])
+    invalid["integration_contract"]["endpoints"][0]["request_schema"] = {
+        "type": "object",
+        "maxProperties": 0,
+    }
+    repaired = _planning_response_with_contract(plan, operation_ids=["getServerStatus"])
+    client = QueuedLLMClient([invalid, repaired])
+    planner = FeaturePlannerAgent(
+        llm_client=client,
+        prompt_loader=PromptLoader(),
+        contract_generator=MockContractCodeGenerator(),
+    )
+
+    _architecture, contract, _plan = await planner.plan(
+        feature_id="feature-plan-repair",
+        technical_prd=_technical_prd(),
+        repositories=_repositories(),
+    )
+
+    assert len(client.calls) == 2, "a structurally invalid contract must be repaired, not shipped"
+    (endpoint,) = contract.endpoints
+    assert endpoint.request_schema is None
+    assert "get-request-no-body" in client.calls[1][0]
+
+
+@pytest.mark.asyncio
 async def test_contract_sections_naming_schemas_events_and_errors_are_accepted() -> None:
     """A section is not only an endpoint: schemas, events, error codes and env vars count."""
     plan = _contract_section_plan(implemented=["StatusPayload"], consumed=["STATUS_UNAVAILABLE"])
