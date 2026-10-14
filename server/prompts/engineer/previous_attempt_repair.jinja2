@@ -1,0 +1,45 @@
+{% if previous_attempt_diff %}
+Your previous attempt produced the change below, and it was rejected in a way that made it not
+worth building on. The workspace has been returned to its committed state, so these files are no
+longer present and the diagnostics above refer to the code shown here:
+
+{{ previous_attempt_diff }}
+
+{% if previous_attempt_withheld_files | default([]) %}
+That capture is incomplete. The following files were part of that change but are NOT shown
+above, and nothing in this prompt says what they contained:
+{% for path in previous_attempt_withheld_files | default([]) %}
+- {{ path }}
+{% endfor %}
+Write each of those files fresh from the task plan and the diagnostics. Do not claim to
+reproduce a file you were not shown.
+{% endif %}
+
+Repair it. Return the complete set of files from that change with only the reported problems
+fixed. For each file shown above, keep every line the diagnostics do not require you to change
+byte-identical to what you see -- that instruction binds only to the files shown here, never to
+a file that was withheld. Do not rewrite working code, rename anything, relocate a file, or
+change an approach the diagnostics did not mention: a rewrite trades the reported defect for
+new ones and loses work that already passed. Your response must still contain
+every file that change contained, because only the files you return are committed.
+
+Repairing a reported problem may require a file this change does not contain yet. A diagnostic
+asking for a kind of coverage the change does not have is satisfied by adding that file, not by
+editing the files already present: return them unchanged and add the new one alongside them.
+Leaving the diagnostic unaddressed because it named something absent produces an identical
+report on the next attempt, and repeating a report ends the workstream instead of spending
+another attempt on it.
+{% endif %}
+{% if previous_attempt_files_present | default([]) %}
+Your previous attempt's files are still in this workspace exactly as it left them, and they
+appear in the repository snapshot above like any other file:
+{% for path in previous_attempt_files_present | default([]) %}
+- {{ path }}
+{% endfor %}
+
+The diagnostics and review findings above are the work order. Correct those files in place with
+`edits` entries, copying each `find` text out of the snapshot exactly; add a new file only where
+a finding asks for something no existing file provides. Do not re-implement or resend files the
+findings do not touch: every uncommitted file from your earlier attempts remains part of the
+candidate change whether or not you return it, so return only what has to change.
+{% endif %}

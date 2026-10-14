@@ -241,6 +241,38 @@ def test_the_javascript_lint_fragment_is_absent_when_the_language_is_not_supplie
     assert "mixing `import` with `module.exports`" not in rendered_prompt
 
 
+def test_the_engineer_is_told_three_basic_rules_before_writing_code() -> None:
+    """AB-Feature-186's three defect classes, taught up front rather than caught after.
+
+    Each recurred in that feature's backend across several attempts (a mock standing in for
+    the real persistence/execution boundary, a raw error reaching a client-facing record, and
+    export work tracked only in an in-memory promise chain) before the independent Reviewer --
+    a full extra attempt-cycle later -- named any of them. Standing instruction here is the
+    primary fix; self-review's own widened checklist is only the backstop.
+    """
+    rendered_prompt = PromptLoader().render("engineer/v1.jinja2", **_ENGINEER_BASE_CONTEXT)
+
+    assert "model, repository, or executor call a new code path introduces" in rendered_prompt
+    assert "no client-facing surface is supposed to expose" in rendered_prompt
+    assert "a different worker than the one that created it" in rendered_prompt
+
+
+def test_the_engineer_is_told_not_to_fake_fixtures_or_backing_dependencies() -> None:
+    """AB-Feature-188: two blocks no rewritten attempt could ever have escaped.
+
+    A test fixture token redacted as a possible real secret forces an unconditional,
+    non-retryable rejection -- no code change recovers from it, only a different literal that
+    happens to also dodge the heuristic would, which is luck, not a fix. A silently-faked
+    backing dependency cost three reworded, still-rejected attempts before the platform's own
+    recurring-demand detector stopped the loop. Both are taught up front here, the same lever
+    that already worked for AB-186's three defect classes.
+    """
+    rendered_prompt = PromptLoader().render("engineer/v1.jinja2", **_ENGINEER_BASE_CONTEXT)
+
+    assert "obviously placeholder shape" in rendered_prompt
+    assert "mock it the way this repository's own tests already mock" in rendered_prompt
+
+
 def test_the_review_is_told_which_commands_the_platform_will_run() -> None:
     """A demand to execute something needs the list of what can be executed to be bounded by.
 

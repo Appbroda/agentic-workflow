@@ -63,64 +63,10 @@ Workspace descriptor:
 Approved task plan:
 {{ task_plan }}
 {%- if contract_sections | default("") %}
-
-Contract sections in scope (the approved contract's own definitions for the sections this task
-plan tells you to implement or consume):
-{{ contract_sections }}
-
-That block is the contract, not a summary of it. Build to its text and not to what a field name
-suggests or a REST convention would imply: a field the schema lists in `required` is one your
-code may rely on and must produce, a `const` is the only permitted value, and a `minimum` is a
-floor. `sections_absent` names sections your task plan asked for that this contract version
-does not define -- do not invent them; say so in `summary`. `sections_omitted` names sections
-whose text did not fit the character bound, so you were not shown them: implement those from
-the plan's prose and say in `summary` that you did.
+{% include "engineer/contract_sections.jinja2" %}
 {%- endif %}
 {%- if design_snapshot | default("") %}
-
-The design this workstream builds (the frames the author attached to the request, resolved
-once, and assigned to this workstream by the approved plan):
-{{ design_snapshot }}
-
-That block is the design, not a summary of it, and its **names** are what it is for. Where a
-frame gives a `style_names` entry, a `component` name or a `set` name, use the thing that name
-refers to in this repository rather than the value beside it: a hex code tells you what to
-hardcode, and `color/surface/raised` tells you what this repository already has and what this
-change must reuse. Search the checkout for the name; if the repository genuinely has nothing
-under it, say so in `summary` and use the resolved value.
-
-{%- if design_pictures | default(0) %}
-{{ design_pictures }} rendering(s) of those frames accompany this request as images, in the
-order the frames are listed above. Build to the picture *and* to the block: the picture tells
-you what it should look like, and the block is where the exact values live -- take spacing,
-type, colour and radius from the block rather than estimating them from pixels. Where the two
-disagree, the block is the design; the picture is a rendering of it.
-
-The rendering is the whole frame. A part of it another workstream builds is not yours to
-implement, and the plan above is what decides which part is.
-{%- else %}
-Build to its text and not to an appearance you cannot see: the layout it declares, the spacing
-it declares, the states its variants draw, and the characters its text nodes actually contain.
-{%- endif %}
-
-A node with an `asset_path` is an image the design fills it with, and that file has **already
-been written into this checkout** -- exported and placed by the platform before you were
-called, into whichever directory this repository already keeps its images in. Find it by its
-filename and reference it exactly the way this repository references its other images.
-
-Do not try to move, copy or rename it: your tools write text, so you cannot relocate a binary
-file, and a reference to a path you "moved" it to points at nothing. Do not invent a
-placeholder in its place and do not try to fetch anything. A node whose fill is
-`{"type": "IMAGE"}` with no `asset_path` is one the platform could not export: say so in
-`summary` rather than inventing artwork for it.
-
-`design_nodes_omitted` names frames you were **not** shown, with the reason and the size --
-implement those from the plan's prose and say in `summary` that you did.
-`design_nodes_absent` names frames the design file does not define and `design_nodes_unreachable`
-names frames this deployment could not read: do not invent either, and say so in `summary`.
-`design_nodes_not_in_snapshot` names frames the plan assigned that this design has never
-contained at all, which is a defect in the plan rather than in the design; report it in
-`summary` and implement nothing for it.
+{% include "engineer/design_snapshot.jinja2" %}
 {%- endif %}
 
 Bounded repository snapshot:
@@ -135,65 +81,7 @@ editing it. `required_dropped_paths` names required files this snapshot could no
 all, with the reason per path in `required_dropped_reasons`; treat those files as unknown to
 you, not as absent from the repository.
 
-Execution context (preflight, current revision, implementation expectations, and changed retry strategy):
-{{ execution_context }}
-
-`model_routing.execution_mode` in that context says which job this is. `INITIAL_IMPLEMENTATION`
-means implement the approved workstream. `REVIEW_REMEDIATION` means an independent reviewer has
-already read this repository's change and asked for specific corrections: make exactly those,
-keep everything else byte-identical, and do not re-plan or re-implement work the review did not
-question. `model_routing.classification` records how much of the system that correction was judged
-to touch -- `STANDARD` for a localized, mechanical edit, `COMPLEX` where the correctness of the
-change depends on behaviour elsewhere, `CRITICAL` where it carries security or data risk. Treat a
-`COMPLEX` or `CRITICAL` correction as requiring you to read the code around it before editing.
-
-You do not decide whether the reviewer's findings are resolved. Say what you changed in `summary`
-and never claim a finding is fixed: validation runs against your change and the reviewer judges it
-again, and a summary that asserts an outcome neither of them has reached is simply wrong.
-
-`retry_plan.advisory_findings` is what that same review said and did not block on. It is not the
-work order and it does not widen your scope: it is the rest of what the reviewer already wrote
-down. Where one of them names a file the work order sends you into anyway, fix it in the same
-pass. Where it would take you into a file the blocking findings do not touch, leave it alone and
-say so in `summary`. These are carried because a finding raised once and withheld comes back as a
-blocking finding on the next attempt, which spends an attempt on something already known.
-
-One shape is worth reading twice rather than once: an advisory finding that names a real defect
-class -- a missing guard, a race, a validation gap -- in a file neither it nor the work order
-sends you into. Leaving that file alone is still correct; but if your own change adds or rewrites
-a file that does the same kind of thing the finding describes, check that file against the same
-defect while you are already looking at it, rather than waiting for a later review to name it a
-second time in the file you actually wrote.
-
-A blocking finding can name a file for the same reason without asking you to change it: when the
-finding says the review's own evidence about a file was incomplete or left out -- omitted,
-truncated, not shown -- rather than that the file itself is wrong, the file is not the work order
-either. Editing it only because it was named this way adds a change the next review has not asked
-for, and is reported as exactly that.
-
-If `retry_plan.wiring_repair` is present in that context, the one defect to fix is that `symbol`
-is not reachable from `target_path`; everything else the previous attempt wrote was correct. Add
-an `edits` entry on `target_path` that makes `symbol` part of what that file actually renders,
-registers, mounts or returns -- importing it is not enough, and if the import is already there
-the edit is only the use. Copy the `find` text out of the snapshot of that file exactly, and do
-not rewrite the rest of `target_path`.
-
-`retry_plan.wiring_repairs` lists every such defect when the previous attempt left more than one
-module unreachable. Fix all of them in this one response: each entry needs its own `edits` entry
-on its own `target_path`, and every one of those files is in the snapshot below. Fixing only the
-first leaves the others to be reported again identically, and a repeated report ends the
-workstream rather than spending another attempt on it.
-
-{% if previous_attempt_diff %}
-Return that edit **in addition to** every file your previous attempt returned, byte-identical.
-The workspace was reset to its committed state before this attempt, so only the files in this
-response are committed: sending the connecting edit on its own silently drops the implementation,
-the tests and the documentation that went with it, and the change is then rejected for missing
-them.
-{% else %}
-Return only the edits the repairs above require. The rest of your previous attempt is still in
-the workspace and remains part of the candidate change whether or not you resend it.
-{% endif %}
+{% include "engineer/retry_and_remediation.jinja2" %}
 
 Lint configuration this checkout actually resolves (empty when it could not be determined):
 {{ lint_capabilities }}
@@ -215,51 +103,7 @@ files and add no suppressions.
 {% include "engineer/languages/javascript.jinja2" %}
 {% endif -%}
 
-{% if previous_attempt_diff %}
-Your previous attempt produced the change below, and it was rejected in a way that made it not
-worth building on. The workspace has been returned to its committed state, so these files are no
-longer present and the diagnostics above refer to the code shown here:
-
-{{ previous_attempt_diff }}
-
-{% if previous_attempt_withheld_files | default([]) %}
-That capture is incomplete. The following files were part of that change but are NOT shown
-above, and nothing in this prompt says what they contained:
-{% for path in previous_attempt_withheld_files | default([]) %}
-- {{ path }}
-{% endfor %}
-Write each of those files fresh from the task plan and the diagnostics. Do not claim to
-reproduce a file you were not shown.
-{% endif %}
-
-Repair it. Return the complete set of files from that change with only the reported problems
-fixed. For each file shown above, keep every line the diagnostics do not require you to change
-byte-identical to what you see -- that instruction binds only to the files shown here, never to
-a file that was withheld. Do not rewrite working code, rename anything, relocate a file, or
-change an approach the diagnostics did not mention: a rewrite trades the reported defect for
-new ones and loses work that already passed. Your response must still contain
-every file that change contained, because only the files you return are committed.
-
-Repairing a reported problem may require a file this change does not contain yet. A diagnostic
-asking for a kind of coverage the change does not have is satisfied by adding that file, not by
-editing the files already present: return them unchanged and add the new one alongside them.
-Leaving the diagnostic unaddressed because it named something absent produces an identical
-report on the next attempt, and repeating a report ends the workstream instead of spending
-another attempt on it.
-{% endif %}
-{% if previous_attempt_files_present | default([]) %}
-Your previous attempt's files are still in this workspace exactly as it left them, and they
-appear in the repository snapshot above like any other file:
-{% for path in previous_attempt_files_present | default([]) %}
-- {{ path }}
-{% endfor %}
-
-The diagnostics and review findings above are the work order. Correct those files in place with
-`edits` entries, copying each `find` text out of the snapshot exactly; add a new file only where
-a finding asks for something no existing file provides. Do not re-implement or resend files the
-findings do not touch: every uncommitted file from your earlier attempts remains part of the
-candidate change whether or not you return it, so return only what has to change.
-{% endif %}
+{% include "engineer/previous_attempt_repair.jinja2" %}
 When retrying, follow the recorded strategy rather than repeating the prior approach. For every
 production requirement, change the repository's established production source areas before relying on test changes.
 Every value listed under `expected_change_categories` in the execution context is a promise your
@@ -359,6 +203,16 @@ boundary -- the transport a real client would use, not the module that calls it 
 caught it. Prefer that boundary when this repository's tests already establish one; add it there
 in the same shape as the repository's existing tests for a comparable call, rather than mocking
 the calling module wholesale.
+
+The same reasoning applies when the connection you are replacing is your own change's
+persistence or execution call, not only an outbound client: a test that replaces the exact
+model, repository, or executor call a new code path introduces -- so that only the mock's own
+call arguments are asserted -- proves the call was made, never that the record it was supposed
+to create, reload, or forward downstream actually exists. When a requirement is to persist,
+reload, or forward something, prefer a test that reads back what the real configured
+persistence layer now holds, in the same shape this repository's own existing tests for a
+comparable effect already use, rather than asserting only that a mocked method was called with
+the right arguments.
 When your change has to call a module this repository already provides, read that module in the
 snapshot and call what it actually exports, by name. Never probe for an export shape at runtime,
 never wrap the import in a fallback that tries several names in turn, and never answer with an
@@ -380,3 +234,35 @@ the same way, because nothing then proves the two agree, and applying a newly-wr
 an existing route changes behavior the requirement never asked you to touch. If the snapshot
 does not show you where this repository's version of it lives, say so plainly in your summary
 rather than substituting your own.
+
+An error your change catches must never reach a client, a log a client's own request can
+trigger, or a record that is itself returned or listed back to a client, in its raw form -- a
+caught exception's own message, a stack frame, or a downstream query string can carry
+infrastructure detail no client-facing surface is supposed to expose. Route it through this
+repository's existing centralized, sanitized error handling the same way every other failure in
+this area already does, rather than writing a response, a stored field, or a log line that
+bypasses it.
+
+When a change introduces a persistent or queued unit of work -- a record waiting to be
+processed, a job another step will pick up -- that work must still be reachable after the
+process handling it restarts or exits, or by a different worker than the one that created it.
+An in-memory promise chain, callback, or variable is not durable: if that is the only thing
+resuming the work, a restart or a crash strands it, often permanently, with nothing left
+recording that it needs to be retried. Prefer whatever durable claiming or retry mechanism this
+repository's own existing queued or background work already uses.
+
+When a change introduces a test credential, token, key, or secret-shaped literal, give it an
+obviously placeholder shape -- a `test-`/`fake-`/`mock-` prefix, for example -- rather than
+inventing a fresh arbitrary string. This repository's own tooling treats any sufficiently
+random-looking literal as a possible real secret and withholds it from review on sight --
+unconditionally, with no retry able to recover it -- exactly as it must for an actual credential.
+A fixture that reads as a placeholder to a person should read as one to that scan too.
+
+When a requirement depends on a real backing service -- a database, cache, or queue -- that this
+environment does not actually provide, mock it the way this repository's own tests already mock
+an external API or database call elsewhere -- openly, not as a disguised stand-in -- and say so
+explicitly, in the test itself and in your summary, rather than trying a real connection first
+and silently falling back to an in-memory substitute when none answers. Either shape is a mock;
+the difference that matters is whether it is labelled as one. A test that presents a mocked round
+trip as though it were real still claims to prove the real effect, and rewriting it in different
+words each attempt does not change that.

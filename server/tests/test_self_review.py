@@ -553,6 +553,33 @@ def test_the_directive_teaches_the_three_states() -> None:
     assert "never report a withheld file" in SELF_REVIEW_DIRECTIVE
 
 
+def test_the_directive_names_the_categories_the_independent_reviewer_used_to_catch_instead() -> (
+    None
+):
+    """AB-Feature-186's backend: a security leak and a crash-safety gap, each one attempt late.
+
+    The engineer's own standing instructions are the primary fix for these three categories
+    (a changed defect is best never written at all); this checklist is the backstop that gives
+    self-review a chance to catch what that guidance still misses, in the same single pass,
+    rather than waiting a full extra attempt-cycle for the independent Reviewer to name it.
+    """
+    assert "Security & information handling" in SELF_REVIEW_DIRECTIVE
+    assert "Test fidelity" in SELF_REVIEW_DIRECTIVE
+    assert "Operational robustness" in SELF_REVIEW_DIRECTIVE
+
+
+def test_the_directive_names_the_two_categories_ab188_added() -> None:
+    """AB-Feature-188: a redacted fixture and a disguised mock, each unfixable by a retry.
+
+    Same backstop role as the three AB-186 categories above -- the engineer's own standing
+    instructions are the primary fix, and this checklist gives self-review one more chance to
+    catch what that guidance still misses before an unconditional, non-retryable rejection or a
+    multi-attempt recurring-demand loop spends budget a code change could never have recovered.
+    """
+    assert "Fixture realism" in SELF_REVIEW_DIRECTIVE
+    assert "Backing-dependency honesty" in SELF_REVIEW_DIRECTIVE
+
+
 def test_every_drop_is_named_with_its_reason(tmp_path: Path) -> None:
     """The budget mechanics declare each not-fully-shown file in the shared vocabulary."""
     agent = EngineerAgent(
