@@ -204,6 +204,18 @@ caught it. Prefer that boundary when this repository's tests already establish o
 in the same shape as the repository's existing tests for a comparable call, rather than mocking
 the calling module wholesale.
 
+A shared client used this way often carries its own registered interceptors -- logic that runs on
+every request or response it makes, not only the one this change triggers. Read what those
+interceptors do before relying on stubbing only the transport: one with its own side effect
+(writing to a global store, mounting UI, logging, a notification call) still runs even when the
+request or response the adapter returns is substituted, and a side effect this environment cannot
+support -- a DOM node the test runner never creates, a browser global, a provider the test process
+never configured -- makes the call behave as though it failed, for a reason the test's own
+assertion never names. When this repository already has a narrower boundary most other callers go
+through for this kind of call -- a wrapper module, an API client layer -- prefer it over the
+shared client directly: a wrapper that does not carry those interceptors is substitutable without
+inheriting their side effects.
+
 The same reasoning applies when the connection you are replacing is your own change's
 persistence or execution call, not only an outbound client: a test that replaces the exact
 model, repository, or executor call a new code path introduces -- so that only the mock's own
