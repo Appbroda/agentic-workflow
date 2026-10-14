@@ -60,6 +60,7 @@ _RECOVERY_POLICY: dict[ExternalOperationType, RecoveryDisposition] = {
     ExternalOperationType.RUN_TYPECHECK: RecoveryDisposition.WORKSPACE_LOCAL,
     ExternalOperationType.RUN_TESTS: RecoveryDisposition.WORKSPACE_LOCAL,
     ExternalOperationType.RUN_BUILD: RecoveryDisposition.WORKSPACE_LOCAL,
+    ExternalOperationType.RUN_ROUTE_DUMP: RecoveryDisposition.WORKSPACE_LOCAL,
     ExternalOperationType.CREATE_COMMIT: RecoveryDisposition.LOCAL_RECONCILE,
     ExternalOperationType.PUSH_BRANCH: RecoveryDisposition.DEFER_TO_CREDENTIALED,
     ExternalOperationType.CREATE_PULL_REQUEST: RecoveryDisposition.DEFER_TO_CREDENTIALED,

@@ -933,6 +933,9 @@ OPERATION_VOICES: Mapping[ExternalOperationType, OperationVoice] = {
         LogbookAgent.ENGINEER, "running {repository}'s own tests"
     ),
     ExternalOperationType.RUN_BUILD: OperationVoice(LogbookAgent.ENGINEER, "building {repository}"),
+    ExternalOperationType.RUN_ROUTE_DUMP: OperationVoice(
+        LogbookAgent.REVIEWER, "reading {repository}'s own real, registered routes"
+    ),
     ExternalOperationType.RUN_REVIEWER: OperationVoice(
         LogbookAgent.REVIEWER, "reading the change to {repository} as a reviewer"
     ),

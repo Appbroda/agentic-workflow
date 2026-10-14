@@ -26,6 +26,11 @@ class ExternalOperationType(StrEnum):
     RUN_TYPECHECK = "run_typecheck"
     RUN_TESTS = "run_tests"
     RUN_BUILD = "run_build"
+    # Requires one route-definition module (never the application's own entry point) and
+    # reports what the framework itself registers, as the one execution-grounded check against
+    # a contract's claimed endpoints review can run without booting anything with real side
+    # effects. See `tools/route_dump.py`.
+    RUN_ROUTE_DUMP = "run_route_dump"
     CREATE_COMMIT = "create_commit"
     PUSH_BRANCH = "push_branch"
     CREATE_PULL_REQUEST = "create_pull_request"

@@ -42,6 +42,7 @@ from state.external_operations import (
 from state.feature_models import RepositorySpec
 from state.models import StateModel
 from storage.external_operation_store import OperationResult, fingerprint_operation_input
+from tools.api_surface import RegisteredRoute
 from tools.diagnostic_references import diagnostic_file_references
 from tools.file_tools import (
     PathLike,
@@ -52,6 +53,7 @@ from tools.file_tools import (
 from tools.node_toolchain import package_manager_argv
 from tools.repository_environment import declared_validation_environment
 from tools.repository_preflight import classify_lint_failure
+from tools.route_dump import RouteDumpResult, dump_route_module
 from tools.technology_detection import (
     RepositoryRevision,
     RepositoryTechnologyProfile,
@@ -614,6 +616,65 @@ class WorkspaceValidationTools:
                 await self._run_command_async(narrowed, timeout_seconds=timeout_seconds, plan=plan)
             )
         return tuple(results)
+
+    async def run_route_dump_async(
+        self, relative_path: str, *, timeout_seconds: float = 20.0
+    ) -> RouteDumpResult:
+        """Require one route module and journal its real, execution-grounded routes.
+
+        Which framework owns `relative_path` is `dump_route_module`'s own call (dispatched on
+        the file's suffix, the same way `tools/api_surface.py` dispatches its static
+        extraction) -- a caller never names one, so this never needs to change as new
+        frameworks gain a dump script, and a suffix none of them claim fails open with a
+        `RouteDumpResult(error=...)` rather than this method raising.
+
+        Unlike `_run_command_async`'s `ValidationResult`, this is not pass/fail evidence against
+        a command's exit code -- it is a route list, journaled in full rather than stripped the
+        way a validation command's stdout deliberately is (`_result_payload`'s own docstring:
+        "repository output is deliberately excluded... cannot smuggle a secret into the
+        journal"). That exclusion protects against arbitrary command output; a route dump's
+        output is never arbitrary -- it is exactly the `{method, path}` pairs this operation set
+        out to extract, so there is nothing here that policy needs to guard against, and
+        withholding it would only mean every replay re-derives nothing and silently looks empty.
+        """
+        revision = await calculate_repository_revision(self.workspace_root)
+
+        async def action() -> tuple[RouteDumpResult, OperationResult]:
+            dumped = await dump_route_module(
+                self.workspace_root,
+                relative_path,
+                process_runner=self._process_runner,
+                cancellation_token=self._cancellation_token,
+                timeout_seconds=timeout_seconds,
+            )
+            payload: dict[str, Any] = {
+                "source_path": dumped.source_path,
+                "error": dumped.error,
+                "routes": [{"method": route.method, "path": route.path} for route in dumped.routes],
+            }
+            return dumped, OperationResult(payload=payload)
+
+        if self._operation_executor is None:
+            result, _ = await action()
+            return result
+        safe_input = {
+            "workspace_path": str(self.workspace_root),
+            "repository_id": self._repository_id,
+            "repository_revision": revision.combined_fingerprint,
+            "head_sha": revision.head_sha,
+            "working_tree_fingerprint": revision.working_tree_fingerprint,
+            "source_path": relative_path,
+        }
+        journaled = await self._operation_executor.run(
+            operation_type=ExternalOperationType.RUN_ROUTE_DUMP,
+            logical_step=f"route_dump:{relative_path}:{revision.combined_fingerprint[:16]}",
+            safe_input=safe_input,
+            idempotency_input=safe_input,
+            action=action,
+        )
+        if not journaled.reused:
+            return cast(RouteDumpResult, journaled.value)
+        return _route_dump_from_payload(journaled.operation.result_payload or {}, relative_path)
 
     def focus_on_changed_tests(self, paths: Sequence[str]) -> None:
         """Narrow this repository's test command to the suites one attempt changed.
@@ -1774,6 +1835,24 @@ def validation_failure_identity(result: ValidationResult) -> str:
         },
         sort_keys=True,
         separators=(",", ":"),
+    )
+
+
+def _route_dump_from_payload(payload: dict[str, Any], relative_path: str) -> RouteDumpResult:
+    """Rebuild a `RouteDumpResult` from a replayed operation's journaled payload."""
+    raw_routes = payload.get("routes", [])
+    routes = tuple(
+        RegisteredRoute(method=entry["method"], path=entry["path"], source_path=relative_path)
+        for entry in raw_routes
+        if isinstance(entry, dict)
+        and isinstance(entry.get("method"), str)
+        and isinstance(entry.get("path"), str)
+    )
+    error = payload.get("error")
+    return RouteDumpResult(
+        source_path=cast(str, payload.get("source_path", relative_path)),
+        routes=routes,
+        error=error if isinstance(error, str) else None,
     )
 
 

@@ -1,6 +1,8 @@
 """Tests for workspace-bounded file, repository, and validation tools."""
 
+import asyncio
 import os
+import shutil
 import subprocess
 from pathlib import Path, PurePosixPath
 
@@ -15,6 +17,7 @@ from services.feature_runtime import _log_validation_plan_drift, _pinned_validat
 from state.enums import ChildWorkflowStatus
 from state.external_operations import ExternalOperationType
 from state.feature_models import ChildWorkflowReference
+from tools.api_surface import RegisteredRoute
 from tools.file_tools import (
     PatchApplicationError,
     WorkspacePathError,
@@ -248,6 +251,46 @@ async def test_validation_tools_run_only_configured_lint_for_baseline(tmp_path: 
     assert len(results) == 1
     assert results[0].validation_type == "lint"
     assert results[0].succeeded
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(shutil.which("node") is None, reason="node is not available")
+async def test_run_route_dump_async_reports_the_real_routes_with_no_operation_executor(
+    tmp_path: Path,
+) -> None:
+    """The tool's own method call-through works end to end without journaling wired up."""
+    write_file(
+        tmp_path,
+        "server/routes/serviceRequest.route.js",
+        "module.exports = { stack: [{ route: { path: '/export', methods: { post: true } } }] };\n",
+    )
+
+    result = await WorkspaceValidationTools(tmp_path).run_route_dump_async(
+        "server/routes/serviceRequest.route.js"
+    )
+
+    assert result.ok
+    assert result.routes == (
+        RegisteredRoute(
+            method="POST",
+            path="/export",
+            source_path="server/routes/serviceRequest.route.js",
+        ),
+    )
+
+
+def test_run_route_dump_async_fails_open_for_an_unsupported_framework(tmp_path: Path) -> None:
+    """A suffix no dump script claims is reported, not raised -- the reviewer falls back."""
+    write_file(tmp_path, "server/routes.py", "routes = []\n")
+
+    result = asyncio.run(
+        WorkspaceValidationTools(tmp_path).run_route_dump_async("server/routes.py")
+    )
+
+    assert not result.ok
+    assert result.error is not None
+    assert "no route dump is implemented" in result.error
+    assert result.routes == ()
 
 
 def test_validation_commands_use_npm_for_a_node_only_repository(tmp_path: Path) -> None:
