@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
 from typing import Any, Protocol
 
 from pydantic import ValidationError
@@ -25,7 +26,9 @@ from agents.shared.task_graph import ordered_task_ids
 from artifacts.schemas import (
     ArchitectureArtifact,
     DesignSnapshotArtifact,
+    EndpointContract,
     IntegrationContractArtifact,
+    RegisteredRouteEvidence,
     RepositoryExecutionPlanArtifact,
     RepositoryReconnaissanceArtifact,
     TechnicalPRDArtifact,
@@ -33,6 +36,7 @@ from artifacts.schemas import (
 from prompts.prompt_loader import PromptLoader
 from state.enums import DeploymentStrategy, MergeStrategy, WorkstreamRole
 from state.feature_models import RepositorySpec
+from tools.contract_lint import ContractLinter, SpectralContractLinter
 from tools.contract_tools import (
     ContractCodeGenerator,
     MockContractCodeGenerator,
@@ -114,6 +118,7 @@ class FeaturePlannerAgent:
         prompt_loader: PromptLoader,
         llm_client: LLMClient,
         contract_generator: ContractCodeGenerator | None = None,
+        contract_linter: ContractLinter | None = None,
         # Off by default, and deliberately temporary in the same sense `bounded_review_scope`
         # is: with it off the prompt renders byte-identically to before this existed, and every
         # plan is built exactly as it is built today. See `configs/settings.py` for why.
@@ -123,6 +128,7 @@ class FeaturePlannerAgent:
         self._prompt_loader = prompt_loader
         self._llm_client = llm_client
         self._contract_generator = contract_generator or OpenAPIContractCodeGenerator()
+        self._contract_linter = contract_linter or SpectralContractLinter()
         self._plan_task_dependencies = plan_task_dependencies
 
     async def plan(
@@ -193,6 +199,7 @@ class FeaturePlannerAgent:
                 payload=payload,
                 metadata=metadata,
                 design_snapshot=design_snapshot,
+                reconnaissance=reconnaissance,
             )
         except (AgentArtifactError, ValidationError) as error:
             # All schema and dependency-graph validation sits inside this one bounded
@@ -257,6 +264,7 @@ class FeaturePlannerAgent:
                     payload=repair_payload,
                     metadata=repair_metadata,
                     design_snapshot=design_snapshot,
+                    reconnaissance=reconnaissance,
                 )
             except (AgentArtifactError, ValidationError) as repair_error:
                 msg = "feature planner could not produce a valid plan after one repair attempt"
@@ -283,6 +291,7 @@ class FeaturePlannerAgent:
         payload: dict[str, Any],
         metadata: dict[str, Any],
         design_snapshot: DesignSnapshotArtifact | None = None,
+        reconnaissance: Sequence[RepositoryReconnaissanceArtifact] = (),
     ) -> tuple[ArchitectureArtifact, IntegrationContractArtifact, RepositoryExecutionPlanArtifact]:
         """Create and cross-validate all planner artifacts from one model response."""
         architecture = create_artifact(
@@ -308,6 +317,7 @@ class FeaturePlannerAgent:
         openapi_document = await self._contract_generator.generate_openapi(contract)
         if openapi_document is not None:
             contract = contract.model_copy(update={"openapi_document": openapi_document})
+            await _require_contract_lints_clean(self._contract_linter, openapi_document)
         plan_payload = _object(payload, "repository_execution_plan")
         plan_payload["feature_id"] = feature_id
         plan_payload["contract_artifact_id"] = contract.artifact_id
@@ -335,6 +345,7 @@ class FeaturePlannerAgent:
         _ensure_plan_covers_technical_requirements(plan, technical_prd)
         _ensure_plan_names_only_real_contract_sections(plan, contract)
         _ensure_plan_names_only_real_design_nodes(plan, design_snapshot)
+        _ensure_contract_endpoints_match_registered_routes(contract, plan, reconnaissance)
         return architecture, contract, plan
 
 
@@ -537,6 +548,37 @@ def _ensure_plan_names_only_real_design_nodes(
     raise AgentArtifactError(msg, stage="feature_planner")
 
 
+async def _require_contract_lints_clean(
+    contract_linter: ContractLinter, openapi_document: dict[str, Any]
+) -> None:
+    """Reject a contract that fails its own structural/protocol linting.
+
+    AB-Feature-184 shipped a GET endpoint whose contract required an empty request body --
+    nothing downstream ever questioned the contract's own quality, because every later check
+    only verifies that code conforms to it. This is that missing check, run here so a defect is
+    repaired before any repository writes a line of code against it.
+
+    Only `error`-severity findings block: `spectral:oas`'s own built-in ruleset includes many
+    `warn`/`info`/`hint`-level style suggestions (missing descriptions, and similar) that would
+    make the bounded repair loop fire on trivial nits rather than real defects.
+    """
+    findings = [
+        finding
+        for finding in await contract_linter.lint(openapi_document)
+        if finding.severity == "error"
+    ]
+    if not findings:
+        return
+    detail = "; ".join(
+        f"{finding.rule} at {finding.path or '(document root)'}: {finding.message}"
+        for finding in findings
+    )
+    msg = f"the generated contract fails its own structural validation: {detail}"
+    # Safe to persist: every interpolated value is Spectral's own rule id/path/message
+    # describing this platform's own generated JSON document, never model or provider text.
+    raise AgentArtifactError(msg, diagnostics=[detail], stage="feature_planner")
+
+
 def _ensure_plan_names_only_real_contract_sections(
     plan: RepositoryExecutionPlanArtifact, contract: IntegrationContractArtifact
 ) -> None:
@@ -581,6 +623,75 @@ def _ensure_plan_names_only_real_contract_sections(
         f"{available or 'no sections at all'}."
     )
     raise AgentArtifactError(msg, stage="feature_planner")
+
+
+def _ensure_contract_endpoints_match_registered_routes(
+    contract: IntegrationContractArtifact,
+    plan: RepositoryExecutionPlanArtifact,
+    reconnaissance: Sequence[RepositoryReconnaissanceArtifact],
+) -> None:
+    """Reject a contract endpoint whose path a repository's own registered routes contradict.
+
+    AB-Feature-187 shipped `POST /service-request/export-active-ad-units` (singular) against a
+    backend that already registers the plural `/service-requests/export-active-ad-units` for
+    the same operation -- reconnaissance even named the operation correctly, but nothing
+    compared the contract's path text against what the checkout actually registers. This closes
+    that gap the same way the sibling check above closes its own: deterministically, before any
+    repository writes a line of code, feeding the planner's existing bounded repair.
+
+    A repository with no registered routes at all, an endpoint no workstream claims to
+    implement, or an endpoint with no same-method route sharing its final path segment to
+    compare against, raises nothing -- this only ever flags a route the checkout demonstrably
+    already has under a different path, never an endpoint that is genuinely new.
+    """
+    routes_by_repository = {item.repository_id: item.registered_routes for item in reconnaissance}
+    endpoints_by_operation_id = {endpoint.operation_id: endpoint for endpoint in contract.endpoints}
+    mismatches: list[str] = []
+    for workstream in plan.workstreams:
+        routes = routes_by_repository.get(workstream.repository_id)
+        if not routes:
+            continue
+        for operation_id in workstream.contract_sections_implemented:
+            endpoint = endpoints_by_operation_id.get(operation_id)
+            if endpoint is None:
+                continue
+            contradiction = _contradicting_registered_route(endpoint, routes)
+            if contradiction is not None:
+                mismatches.append(
+                    f"'{workstream.repository_id}' already registers {contradiction.method} "
+                    f"{contradiction.path} ({contradiction.source_path}) for the operation the "
+                    f"contract calls {endpoint.method} {endpoint.path} ('{operation_id}')"
+                )
+    if not mismatches:
+        return
+    detail = "; ".join(mismatches)
+    msg = (
+        "the integration contract names endpoint paths a repository's own registered routes "
+        f"contradict: {detail}. Use the path the repository already registers."
+    )
+    raise AgentArtifactError(msg, stage="feature_planner")
+
+
+def _contradicting_registered_route(
+    endpoint: EndpointContract, routes: Sequence[RegisteredRouteEvidence]
+) -> RegisteredRouteEvidence | None:
+    """Return a registered route that contradicts this endpoint, or None when none do.
+
+    A route is only a contradiction when it shares the endpoint's method and final path
+    segment -- the part of the path that names the operation -- but not its full path, and no
+    route of that method registers the endpoint's exact path anywhere in the same repository.
+    Matching on the final segment alone, rather than the whole path, is what catches a prefix
+    drift like AB-187's singular/plural mismatch without also flagging a path parameter spelled
+    differently (`{id}` vs `:id`) or a route nested under a prefix the contract omits.
+    """
+    same_method = [route for route in routes if route.method == endpoint.method]
+    if any(route.path == endpoint.path for route in same_method):
+        return None
+    final_segment = PurePosixPath(endpoint.path).name
+    for route in same_method:
+        if route.path != endpoint.path and PurePosixPath(route.path).name == final_segment:
+            return route
+    return None
 
 
 def _ensure_plan_covers_technical_requirements(

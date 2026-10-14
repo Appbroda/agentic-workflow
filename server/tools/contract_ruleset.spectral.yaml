@@ -1,0 +1,37 @@
+# Contract-quality gate for every generated integration contract.
+#
+# Deliberately not a hand-rolled list of checks: `spectral:oas` is Spectral's own built-in
+# OpenAPI-validity ruleset, applied in full below.
+#
+# The one platform-specific rule here is not invented: it is a direct, faithful port of
+# `@luxass/spectral-ruleset`'s `luxass/oas3/get-request-no-body` rule (npm package
+# @luxass/spectral-ruleset@1.1.1, dist/ruleset.mjs) -- exactly the AB-Feature-184 defect (a
+# GET endpoint requiring an empty request body). Ported rather than `extends`-ed as a live
+# package: this repository has no installed `node_modules` tree for Spectral's module
+# resolution to find it in, and the alternative (a live unpkg/CDN URL `extends`) would make
+# every planning call depend on an outbound network fetch -- exactly the live-network
+# dependency this design exists to avoid. Confirmed equivalent by extracting and reading the
+# real upstream rule source rather than guessing its shape:
+#
+#   "luxass/oas3/get-request-no-body": {
+#     message: "A `GET` request MUST NOT accept a request body.",
+#     given: "$.paths..get.requestBody",
+#     then: { function: undefined },
+#     formats: [oas3],
+#     severity: DiagnosticSeverity.Error,
+#   }
+#
+# `undefined` is Spectral's own built-in core function (`@stoplight/spectral-functions`,
+# bundled with every Spectral install already) -- nothing here is a custom function either.
+extends: spectral:oas
+
+rules:
+  get-request-no-body:
+    description: >-
+      A GET request MUST NOT accept a request body (ported from
+      @luxass/spectral-ruleset's luxass/oas3/get-request-no-body).
+    message: "A `GET` request MUST NOT accept a request body."
+    given: "$.paths..get.requestBody"
+    severity: error
+    then:
+      function: undefined

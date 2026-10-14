@@ -322,6 +322,51 @@ def test_a_reconnaissance_that_established_no_commands_reads_as_unknown() -> Non
     assert "was not established for that repository, not" in rendered
 
 
+def test_the_planner_is_told_to_reuse_a_registered_route_instead_of_duplicating_it() -> None:
+    """AB-Feature-188: a working route already existed, and a second one was added beside it.
+
+    The contract named `/service-request/export-active-ad-units`; the backend already served
+    the identical capability at `/service-requests/ad-units/export`. Nothing told the planner
+    to check -- the deterministic backstop only catches a shared final path segment under a
+    different prefix, a narrower shape than this one, so this gap needs the model's own
+    judgement, not another string match.
+    """
+    rendered = PromptLoader().render(
+        "planner/feature_v1.jinja2",
+        feature_id="feature-1",
+        technical_prd="{}",
+        repositories=[],
+        has_reconnaissance=True,
+        reconnaissance=json.dumps([{"repository_id": "admin"}]),
+        design_snapshot="",
+    )
+
+    assert "registered_routes" in rendered
+    assert "a route to reuse, not a reason to add a second one" in rendered
+
+
+def test_the_planner_is_told_to_write_the_complete_mounted_path() -> None:
+    """AB-Feature-199: the contract named `/ad-units/export`, a route's own local fragment.
+
+    The real, already-shipped route is only reachable at `/service-requests/ad-units/export` --
+    the prefix its router is mounted under. The independent reviewer caught the contract's
+    missing prefix after the fact and, backwards, told the backend to change its already-correct
+    route to match; the fix belongs at the source, in what the contract is told to write.
+    """
+    rendered = PromptLoader().render(
+        "planner/feature_v1.jinja2",
+        feature_id="feature-1",
+        technical_prd="{}",
+        repositories=[],
+        has_reconnaissance=True,
+        reconnaissance=json.dumps([{"repository_id": "admin"}]),
+        design_snapshot="",
+    )
+
+    assert "the complete, externally reachable path" in rendered
+    assert "looks plausible and is not real" in rendered
+
+
 def _planner_render(**overrides: Any) -> str:
     """Render the planner prompt with the minimal fixed context every render test here shares."""
     return PromptLoader().render(
