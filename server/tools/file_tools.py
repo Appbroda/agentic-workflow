@@ -7,7 +7,7 @@ import re
 import stat
 import tempfile
 from contextlib import suppress
-from pathlib import Path, PurePath
+from pathlib import Path, PurePath, PurePosixPath
 from typing import Protocol
 
 type PathLike = str | Path
@@ -36,6 +36,28 @@ _CREDENTIAL_STEMS = frozenset({"id_ed25519", "id_rsa"})
 # format. `secretRotation.ts` is a module about secrets; `secrets.yaml` is the secrets.
 _CREDENTIAL_DATA_SUFFIXES = frozenset({"", ".cfg", ".ini", ".json", ".toml", ".yaml", ".yml"})
 _TEMPLATE_MARKERS = frozenset({"dist", "example", "sample", "template"})
+# Tokens that identify a registry only as a whole filename. `App.js` is a React root;
+# `AddAppModal.js` is a modal. Matching "app" as one camel-case fragment made every file
+# whose name mentions an app a registry, which in an ad-management console is very nearly
+# all of them: AB-Feature-112's console was told twelve times to mount bulk deletion in
+# `src/components/apps/AddAppModal.js`, and burned every review cycle on it.
+_REGISTRAR_STEM_TOKENS = frozenset({"app", "index", "main", "root"})
+# Tokens that identify a registry wherever they appear in the name, because they describe
+# the job rather than the subject: a sidebar or a router mounts things whatever it is called.
+_REGISTRAR_FRAGMENT_TOKENS = frozenset(
+    {
+        "menu",
+        "nav",
+        "navigation",
+        "registry",
+        "route",
+        "router",
+        "routes",
+        "sidebar",
+    }
+)
+# A directory says where the repository puts this kind of file, so either sort counts there.
+_REGISTRAR_TOKENS = _REGISTRAR_STEM_TOKENS | _REGISTRAR_FRAGMENT_TOKENS
 # Bounded because callers hand over text they have already read for another purpose, and an
 # unbounded scan over every context candidate is a denial-of-service surface. A key at byte
 # 400,000 of a minified bundle is deliberately out of scope.
@@ -76,6 +98,25 @@ def is_credential_shaped_path(path: PurePath) -> bool:
             and not _is_explicit_template(name)
         )
     )
+
+
+def registers_modules(path: str) -> bool:
+    """Judge whether a file mounts modules, rather than merely mentioning one.
+
+    Derived from the path the repository already chose, so it stays a question about the
+    checkout rather than an assumption about a framework. Lives beside `is_credential_shaped_path`
+    rather than in `tools/repository_reconnaissance.py`, which first needed it: both are
+    filename-only judgements with no dependency of their own, and `tools/reachability.py` also
+    needs this one, which would otherwise import reconnaissance and reconnaissance import it
+    back by way of `tools/channel_packages.py`.
+    """
+    posix = PurePosixPath(path)
+    if {part.lower() for part in posix.parts[:-1]} & _REGISTRAR_TOKENS:
+        return True
+    if posix.stem.lower() in _REGISTRAR_STEM_TOKENS:
+        return True
+    fragments = {token.lower() for token in re.findall(r"[A-Z]?[a-z]+", posix.stem)}
+    return bool(fragments & _REGISTRAR_FRAGMENT_TOKENS)
 
 
 def carries_key_material(content: str) -> bool:

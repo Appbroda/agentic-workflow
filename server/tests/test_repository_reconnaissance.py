@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 
+import tools.repository_reconnaissance as repository_reconnaissance
 from adapters.llm_adapter import ImageInput, LLMResponse
 from agents.recon.agent import RepositoryReconAgent
 from agents.shared.contracts import AgentArtifactError
@@ -20,7 +21,7 @@ from artifacts.schemas import (
     TechnicalPRDArtifact,
 )
 from prompts.prompt_loader import PromptLoader
-from tools.repository_reconnaissance import inspect_repository_for_planning
+from tools.repository_reconnaissance import _registered_routes, inspect_repository_for_planning
 
 
 class RecordingLLMClient:
@@ -170,6 +171,77 @@ def test_the_scan_reports_the_checkout_and_withholds_its_credentials(tmp_path: P
     # A leaf route imports nothing of its own and is not an assembly point.
     assert "server/routes/health.js" not in wiring_paths
     assert not any(".env" in path for path in evidence.file_inventory)
+
+
+def test_a_capped_route_list_keeps_an_early_routes_complete_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A repository with more bare routes than the cap must not lose every mounted path.
+
+    AB-Feature-204 and -199: `admanager_console-2.0` has more bare routes than
+    `_MAX_REGISTERED_ROUTES`, and the old bare-block-then-mounted-block ordering meant the
+    slice never reached the mounted block at all -- the contract was grounded on the bare
+    fragment `/ad-units/export` instead of the real, mounted `/service-requests/ad-units/export`.
+    The cap is monkeypatched down to 3 so this proves the same failure mode on a small fixture
+    rather than writing 200 real routes.
+    """
+    monkeypatch.setattr(repository_reconnaissance, "_MAX_REGISTERED_ROUTES", 3)
+    index_route = "\n".join(
+        [
+            "import serviceRequestRoutes from './serviceRequest.route';",
+            "router.use('/service-requests', serviceRequestRoutes);",
+        ]
+    )
+    service_request_route = "\n".join(
+        [
+            "router.route('/export').post(asyncHandler(controller.exportActiveAdUnits));",
+            "router.route('/deactivate').post(asyncHandler(controller.deactivate));",
+        ]
+    )
+    (tmp_path / "server/routes").mkdir(parents=True)
+    (tmp_path / "server/routes/index.route.js").write_text(index_route, encoding="utf-8")
+    (tmp_path / "server/routes/serviceRequest.route.js").write_text(
+        service_request_route, encoding="utf-8"
+    )
+
+    routes = _registered_routes(
+        tmp_path,
+        ["server/routes/index.route.js", "server/routes/serviceRequest.route.js"],
+    )
+
+    assert len(routes) == 3
+    paths = {route.path for route in routes}
+    assert "/service-requests/export" in paths
+
+
+def test_a_configured_channel_is_told_apart_from_a_plain_consumer(tmp_path: Path) -> None:
+    """A file that configures a channel package is named; a file that only imports it is not.
+
+    AB-Feature-188's frontend imported `axios` bare in a brand-new file instead of routing
+    through the repository's already-configured instance -- invisible to reconnaissance until
+    now, and invisible to the engineer's own diff-based channel scan on the attempt that needed
+    it, since that attempt had not written the file yet for the scan to read.
+    """
+    (tmp_path / "src" / "config").mkdir(parents=True)
+    (tmp_path / "src" / "api").mkdir(parents=True)
+    (tmp_path / "package.json").write_text(json.dumps({"scripts": {}}), encoding="utf-8")
+    (tmp_path / "src" / "config" / "axios.js").write_text(
+        "import axios from 'axios';\n"
+        "const instance = axios.create({ baseURL: '/api' });\n"
+        "export default instance;\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "src" / "api" / "thing.js").write_text(
+        "import axios from 'axios';\n"
+        "export function fetchThing() { return axios.get('/thing'); }\n",
+        encoding="utf-8",
+    )
+    subprocess.run(("git", "init", "--quiet"), cwd=tmp_path, check=True)
+
+    evidence = inspect_repository_for_planning(tmp_path, repository_id="frontend")
+
+    configuring = {item.source_path: item.package for item in evidence.configured_channels}
+    assert configuring == {"src/config/axios.js": "axios"}
 
 
 def test_a_registry_of_dotted_module_names_is_still_recognised(tmp_path: Path) -> None:

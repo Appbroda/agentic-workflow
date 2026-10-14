@@ -39,6 +39,7 @@ from storage.db import Database
 from storage.external_operation_store import ExternalOperationJournal
 from tools import node_toolchain
 from tools import repository_preflight as preflight_module
+from tools.file_tools import registers_modules
 from tools.implementation_completeness import (
     meaningful_progress,
     validate_implementation_completeness,
@@ -51,7 +52,6 @@ from tools.repository_preflight import (
     classify_lint_failure,
     install_failure_is_transient,
 )
-from tools.repository_reconnaissance import registers_modules
 from tools.retry_strategy import (
     FailureClassification,
     TerminalCause,

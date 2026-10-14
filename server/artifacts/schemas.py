@@ -1291,6 +1291,30 @@ class RepositoryConvention(StrictSchema):
     wiring_path: NonEmptyString | None
 
 
+class RegisteredRouteEvidence(StrictSchema):
+    """One method+path a repository's own router registration actually exposes at plan time.
+
+    Mirrors `tools.api_surface.RegisteredRoute` field-for-field without importing it: that
+    module already imports from this one, and this module stays dependency-free of `tools/`.
+    """
+
+    method: NonEmptyString
+    path: NonEmptyString
+    source_path: NonEmptyString
+
+
+class ConfiguredChannelEvidence(StrictSchema):
+    """One channel package a repository's own source configures, not merely imports, at plan time.
+
+    Mirrors `tools.channel_packages.ConfiguredChannel` field-for-field without importing it, for
+    the same reason `RegisteredRouteEvidence` does not import `tools.api_surface.RegisteredRoute`:
+    this module stays dependency-free of `tools/`.
+    """
+
+    package: NonEmptyString
+    source_path: NonEmptyString
+
+
 class ContradictedPremise(StrictSchema):
     """A thing the requirements assume exists that this checkout does not contain.
 
@@ -1329,6 +1353,16 @@ class RepositoryReconnaissanceArtifact(BaseArtifact):
     # field existed reads back as empty, and the planner's clause is written so that empty asks
     # nothing rather than forbidding everything.
     runnable_validation_commands: list[NonEmptyString] = Field(default_factory=list)
+    # Deterministic, not model-authored -- carried straight from the checkout scan the same way
+    # `repository_revision` is, so a plan can be checked against what this repository actually
+    # registers rather than against prose a model wrote about it. Optional for the same reason
+    # `runnable_validation_commands` is: every artifact persisted before this field existed
+    # reads back as empty, and empty means only "not established," never "registers nothing."
+    registered_routes: list[RegisteredRouteEvidence] = Field(default_factory=list)
+    # Deterministic, not model-authored, for the same reason `registered_routes` is: carried
+    # straight from the checkout scan rather than from prose a model wrote about it, so a plan
+    # or an engineer attempt can be checked against what this repository already configures.
+    configured_channels: list[ConfiguredChannelEvidence] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def conventions_are_uniquely_identified(self) -> Self:
