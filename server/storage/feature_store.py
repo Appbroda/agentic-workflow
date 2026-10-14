@@ -566,12 +566,30 @@ class SqlAlchemyFeatureControlPlane:
         run the whole feature inside the HTTP request that asked for them, which is how
         AB-Feature-108 lost seventy minutes to a cancelled socket.
         """
+        logger = structlog.get_logger("storage.feature_store")
+        logger.info(
+            "feature_execute_queued_entered",
+            feature_id=feature_id,
+            intent=intent,
+        )
         arguments = dict(payload or {})
         record = await self.get_record(feature_id)
         runner = self._runner_for(record.state.execution_mode)
         if runner is None:
+            logger.warning(
+                "feature_execute_queued_no_runner",
+                feature_id=feature_id,
+                execution_mode=record.state.execution_mode,
+            )
             return
-        if await self._claim_disposition(record.state, intent) is ClaimDisposition.DROP:
+        pre_lock_disposition = await self._claim_disposition(record.state, intent)
+        logger.info(
+            "feature_execute_queued_pre_lock_disposition",
+            feature_id=feature_id,
+            disposition=pre_lock_disposition.value,
+            status=record.state.status.value,
+        )
+        if pre_lock_disposition is ClaimDisposition.DROP:
             # Checked before the lock as well as inside it. A claim that arrives on a feature
             # which has already moved on must return at once rather than spending ten seconds
             # failing to acquire a lock held by the run that moved it.

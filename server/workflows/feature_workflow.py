@@ -1793,18 +1793,33 @@ class FeatureWorkflowOrchestrator:
         *,
         credentials: RequestScopedCredentials,
     ) -> FeatureWorkflowSnapshot:
-        """Dispatch one named step to the method that owns it."""
+        """Dispatch one named step to the method that owns it.
+
+        Logged at entry and exit for every step: the PR-publication step has gone silent with
+        no trace at all (no checkpoint, no operation, no exception the dispatcher's own catch-
+        alls surfaced) on more than one feature now, and this is the one place that can confirm
+        or rule out whether a claim even reaches a step before it goes quiet.
+        """
+        _LOGGER.info("feature_step_dispatching", feature_id=state.feature_id, step=step.value)
         if step is FeatureStep.RESOLVE_DESIGN:
-            return await self._step_resolve_design(state)
-        if step is FeatureStep.ANALYZE_PRD:
-            return await self._step_analyze_prd(state)
-        if step is FeatureStep.PLAN:
-            return await self._step_plan(state, credentials=credentials)
-        if step is FeatureStep.EXECUTE_WORKSTREAMS:
-            return await self._step_execute_workstreams(state, credentials=credentials)
-        if step is FeatureStep.INTEGRATION_REVIEW:
-            return await self._step_integration_review(state)
-        return await self._step_publish(state)
+            result = await self._step_resolve_design(state)
+        elif step is FeatureStep.ANALYZE_PRD:
+            result = await self._step_analyze_prd(state)
+        elif step is FeatureStep.PLAN:
+            result = await self._step_plan(state, credentials=credentials)
+        elif step is FeatureStep.EXECUTE_WORKSTREAMS:
+            result = await self._step_execute_workstreams(state, credentials=credentials)
+        elif step is FeatureStep.INTEGRATION_REVIEW:
+            result = await self._step_integration_review(state)
+        else:
+            result = await self._step_publish(state)
+        _LOGGER.info(
+            "feature_step_dispatched",
+            feature_id=state.feature_id,
+            step=step.value,
+            resulting_status=result.status.value,
+        )
+        return result
 
     def _settle_without_a_step(
         self, state: FeatureWorkflowSnapshot, decision: StepDecision
@@ -1850,6 +1865,11 @@ class FeatureWorkflowOrchestrator:
         """
         state = state.model_copy(deep=True)
         _record_executor_identity(state)
+        _LOGGER.info(
+            "feature_begin_resume_entered",
+            feature_id=state.feature_id,
+            status=state.status.value,
+        )
         await self._raise_if_cancelled(state)
         if state.status != FeatureWorkflowStatus.WAITING_FOR_HUMAN:
             validate_clarification_answers(state, answers)
@@ -1858,6 +1878,7 @@ class FeatureWorkflowOrchestrator:
             # terminal diagnosis, and a second failure must be free to record its own cause.
             state.failure_summary = None
             require_resumable_feature(state)
+            _LOGGER.info("feature_begin_resume_resumable", feature_id=state.feature_id)
             return state
         if state.failure_summary is not None and state.failure_summary.retryable and not answers:
             # A transient provider failure uses WAITING_FOR_HUMAN so the recovery action is
@@ -5323,6 +5344,7 @@ class FeatureWorkflowOrchestrator:
         integration_approved: bool = True,
     ) -> FeatureWorkflowSnapshot:
         """Open a PR for every repository that passed its own review, completing only if all did."""
+        _LOGGER.info("feature_publish_pull_requests_entered", feature_id=state.feature_id)
         transition_feature(
             state,
             FeatureWorkflowStatus.READY_FOR_PULL_REQUESTS,
@@ -5339,7 +5361,9 @@ class FeatureWorkflowOrchestrator:
             await self._raise_if_cancelled(state)
         except CancellationRequested:
             return state
+        _LOGGER.info("feature_checkpoint_before_pr_starting", feature_id=state.feature_id)
         await self._checkpoint(state, WorkflowCheckpointBoundary.BEFORE_PR)
+        _LOGGER.info("feature_checkpoint_before_pr_finished", feature_id=state.feature_id)
         result_by_repository = {item.repository_id: item for item in child_results}
         workstream_by_repository = {item.repository_id: item for item in plan.workstreams}
         workstream_by_id = {item.workstream_id: item for item in plan.workstreams}
@@ -5424,6 +5448,11 @@ class FeatureWorkflowOrchestrator:
                 awaiting=[item.repository_id for item in repositories_to_publish],
                 required_failures=required_failures,
             )
+        _LOGGER.info(
+            "feature_pull_request_publisher_calling",
+            feature_id=state.feature_id,
+            repository_ids=sorted(item.repository_id for item in repositories_to_publish),
+        )
         try:
             newly_published = (
                 await self._pull_request_publisher.publish(
@@ -5436,6 +5465,11 @@ class FeatureWorkflowOrchestrator:
                 )
                 if repositories_to_publish
                 else []
+            )
+            _LOGGER.info(
+                "feature_pull_request_publisher_returned",
+                feature_id=state.feature_id,
+                published_count=len(newly_published),
             )
         except PartialPullRequestError as error:
             _append_artifacts(state, error.pull_requests)
