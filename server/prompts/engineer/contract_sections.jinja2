@@ -1,0 +1,12 @@
+
+Contract sections in scope (the approved contract's own definitions for the sections this task
+plan tells you to implement or consume):
+{{ contract_sections }}
+
+That block is the contract, not a summary of it. Build to its text and not to what a field name
+suggests or a REST convention would imply: a field the schema lists in `required` is one your
+code may rely on and must produce, a `const` is the only permitted value, and a `minimum` is a
+floor. `sections_absent` names sections your task plan asked for that this contract version
+does not define -- do not invent them; say so in `summary`. `sections_omitted` names sections
+whose text did not fit the character bound, so you were not shown them: implement those from
+the plan's prose and say in `summary` that you did.

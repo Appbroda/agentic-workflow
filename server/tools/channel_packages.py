@@ -373,6 +373,37 @@ def channel_configuration_calls(
     return tuple(sorted({name for ranked in hits.values() for _rank, name in ranked}))
 
 
+@dataclass(frozen=True, slots=True)
+class ConfiguredChannel:
+    """One channel package a single file configures, not merely imports."""
+
+    package: str
+    source_path: str
+
+
+def configured_channels(path: str, source: str) -> tuple[ConfiguredChannel, ...]:
+    """Return every channel package this one file configures, sorted by package name.
+
+    Unlike `channel_seam_scan`, which needs a diff and the whole checkout to find who else
+    imports a *change's* channel packages, this asks a narrower, diff-free question of one file
+    at a time: does it merely import a channel package, or does it also reach one of that
+    package's own configuration entry points through the binding its import made. A file this
+    names is the module AB-Feature-218's two blockers both lived in, and the reason reconnaissance
+    can read it before any plan exists: nothing here depends on a change, so every file in a
+    checkout can be asked this question up front, the same way every file is already asked what
+    routes it registers.
+    """
+    packages = channel_imports(path, source)
+    if not packages:
+        return ()
+    hits = _configuration_hits(path, source, packages)
+    return tuple(
+        ConfiguredChannel(package=package, source_path=path)
+        for package in sorted(hits)
+        if hits[package]
+    )
+
+
 def _configuration_hits(
     path: str, source: str, packages: Collection[str]
 ) -> dict[str, tuple[tuple[int, str], ...]]:
@@ -625,10 +656,12 @@ __all__ = [
     "MAX_SEAM_CO_IMPORTERS",
     "ChannelEcosystem",
     "ChannelSeamScan",
+    "ConfiguredChannel",
     "SeamCoImporter",
     "channel_configuration_calls",
     "channel_imports",
     "channel_seam_scan",
+    "configured_channels",
     "mocked_channel_packages",
     "specifier_names_package",
 ]

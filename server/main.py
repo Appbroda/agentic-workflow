@@ -3,6 +3,8 @@
 import asyncio
 import os
 import shutil
+import signal
+import traceback
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from fnmatch import fnmatchcase
@@ -1049,6 +1051,25 @@ def create_production_app() -> FastAPI:
                 slack_dispatcher.run_periodic(interval_seconds=30.0),
                 name="slack-notification-dispatch",
             )
+
+            # Diagnostic only: `kill -USR1 <pid>` dumps every live asyncio task's name and
+            # stack. py-spy can only see OS threads, not individual tasks, so it cannot tell
+            # a dispatcher worker that silently died from one alive but stuck on an await
+            # that will never resolve -- this does, with no sudo and no code path change.
+            def _dump_tasks(*_args: object) -> None:
+                logger = structlog.get_logger("runtime.diagnostics")
+                for task in asyncio.all_tasks():
+                    frames = task.get_stack()
+                    formatted = "".join(traceback.format_stack(frames[-1])) if frames else None
+                    logger.warning(
+                        "task_dump",
+                        name=task.get_name(),
+                        done=task.done(),
+                        cancelled=task.cancelled() if task.done() else None,
+                        stack=formatted,
+                    )
+
+            signal.signal(signal.SIGUSR1, _dump_tasks)
             yield
         finally:
             await application.state.feature_dispatcher.stop()

@@ -228,6 +228,14 @@ class RepositoryReconAgent:
                 "feature_id": feature_id,
                 "repository_id": repository_id,
                 "repository_revision": evidence.repository_revision,
+                "registered_routes": [
+                    {"method": route.method, "path": route.path, "source_path": route.source_path}
+                    for route in evidence.registered_routes
+                ],
+                "configured_channels": [
+                    {"package": channel.package, "source_path": channel.source_path}
+                    for channel in evidence.configured_channels
+                ],
             },
             metadata=metadata,
         )

@@ -47,6 +47,7 @@ from agents.shared.design_snapshot import (
 from artifacts.schemas import (
     CodeCompletionArtifact,
     FileChange,
+    RepositoryReconnaissanceArtifact,
     ReviewArtifact,
     ReviewFinding,
     TaskPlanArtifact,
@@ -419,6 +420,11 @@ class ReviewerAgent:
         # not that no such command exists -- and a demand to run one is a demand the engineer
         # has no way to meet. Rendered as the bound on what any finding may ask for.
         planned_commands = _planned_validation_commands(self._validation_tool)
+        execution_grounded_routes = await _execution_grounded_routes(
+            state,
+            repository_id=review_scope.get("repository_id"),
+            validation_tool=self._validation_tool,
+        )
         # Fetched before the prompt is rendered, because the prompt has to say how many
         # pictures accompany it: an unexplained image is a worse input than none.
         design_pictures = await self._design_pictures(design_snapshot)
@@ -476,6 +482,9 @@ class ReviewerAgent:
             "validation": [validation_summary(result) for result in validation_results],
             "prior_repository_findings": prior_findings,
             "workspace_change_evidence": workspace_evidence["model_input"],
+            # Present only for the route files this could require and read directly; absent or
+            # empty means nothing here was execution-grounded, not that nothing is registered.
+            "execution_grounded_routes": execution_grounded_routes,
         }
         input_text = json.dumps(review_input, indent=2, sort_keys=True)
 
@@ -3495,6 +3504,70 @@ def _planned_validation_commands(tool: ValidationTool) -> tuple[ValidationComman
     if not isinstance(commands, Sequence):
         return ()
     return tuple(item for item in commands if isinstance(item, ValidationCommand))
+
+
+# Bounded the same way every reconnaissance evidence list in this platform already is: a
+# repository with more route-definition files than this contributes static evidence only for
+# the rest, rather than this review spending unbounded time dumping each one.
+_MAX_ROUTE_DUMPS = 25
+
+
+async def _execution_grounded_routes(
+    state: AgentState, *, repository_id: str | None, validation_tool: ValidationTool
+) -> list[dict[str, Any]]:
+    """Require each route file reconnaissance found, and report what it really registers.
+
+    Reconnaissance's own `registered_routes` is a static-text reading of the checkout -- precise
+    about which prefix mounts which file as of today's fix, but still a reading of source text,
+    not of the framework's own answer. This asks the one thing static text cannot answer for
+    certain: what does this file actually register, by requiring it and reading the framework's
+    own router object, never by re-deriving its shape from a regex. A mismatch between this and
+    the contract is the application itself disagreeing with the contract, not a heuristic's
+    guess disagreeing with one -- which is what a `contract`-category finding should require
+    before it rejects an engineer's correct code again (AB-Feature-199, -204).
+
+    Which framework owns a given file, if any, is `tools/route_dump.py`'s own call (dispatched
+    on the file's suffix) -- this tries every distinct source path reconnaissance named, not
+    just ones of a framework this already knows about, so a new dump script extends coverage
+    here without this function changing at all. Never the application's own entry point,
+    deliberately: only the route-definition module `tools/route_dump.py` itself refuses to go
+    past. A file no dump script claims, or one this cannot require -- a transitive import this
+    cannot resolve, no interpreter available -- is reported with its own error, and the review
+    reasons from the static evidence for that one file instead, the same "fails open" discipline
+    every heuristic in this package already follows.
+    """
+    reconnaissance = next(
+        (
+            artifact
+            for artifact in reversed(state["artifacts"])
+            if isinstance(artifact, RepositoryReconnaissanceArtifact)
+            and (repository_id is None or artifact.repository_id == repository_id)
+        ),
+        None,
+    )
+    if reconnaissance is None or not reconnaissance.registered_routes:
+        return []
+    dump = getattr(validation_tool, "run_route_dump_async", None)
+    if not callable(dump):
+        return []
+    candidate_paths = list(
+        dict.fromkeys(route.source_path for route in reconnaissance.registered_routes)
+    )[:_MAX_ROUTE_DUMPS]
+    results: list[dict[str, Any]] = []
+    for source_path in candidate_paths:
+        try:
+            dumped = await dump(source_path)
+        except Exception as error:  # noqa: BLE001 - one file's failure must not cost the rest
+            results.append({"source_path": source_path, "routes": [], "error": str(error)})
+            continue
+        results.append(
+            {
+                "source_path": dumped.source_path,
+                "routes": [{"method": route.method, "path": route.path} for route in dumped.routes],
+                "error": dumped.error,
+            }
+        )
+    return results
 
 
 def _uncollectable_tests_description(result: ValidationResult, test_paths: Sequence[str]) -> str:

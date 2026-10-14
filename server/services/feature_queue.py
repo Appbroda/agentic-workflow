@@ -832,7 +832,40 @@ class FeatureQueueDispatcher:
         for index in range(self.workers):
             task = asyncio.create_task(self._work(), name=f"feature-queue-worker-{index}")
             self._tasks.add(task)
+            task.add_done_callback(self._log_worker_exit)
             task.add_done_callback(self._tasks.discard)
+
+    def _log_worker_exit(self, task: asyncio.Task[None]) -> None:
+        """Log every way a worker task can end, before `self._tasks.discard` drops it.
+
+        `_work()`'s own `try`/`except` logs a cancellation and logs (via `_LOGGER.exception`)
+        anything `run_once()` itself raises -- but a worker has been found to disappear from
+        `asyncio.all_tasks()` with neither ever firing, leaving its claim orphaned with no
+        trace of why. A done-callback is the one thing asyncio guarantees runs exactly once,
+        for every way a task can end, including ones that bypass its own body's exception
+        handling entirely -- so this is unconditional, independent of what `_work()` itself
+        managed to catch.
+        """
+        if task.cancelled():
+            _LOGGER.warning("feature_queue_worker_exited", name=task.get_name(), cancelled=True)
+            return
+        error = task.exception()
+        if error is not None:
+            _LOGGER.error(
+                "feature_queue_worker_exited",
+                name=task.get_name(),
+                cancelled=False,
+                error_type=type(error).__name__,
+            )
+        else:
+            # `_work()` is an infinite loop; returning at all means something broke out of it
+            # without raising, which is its own kind of unexpected.
+            _LOGGER.warning(
+                "feature_queue_worker_exited",
+                name=task.get_name(),
+                cancelled=False,
+                error_type=None,
+            )
 
     async def stop(self) -> None:
         """Cancel the workers and wait for them, so shutdown does not leak a running claim."""
@@ -861,9 +894,21 @@ class FeatureQueueDispatcher:
         entry = await self.queue.claim(owner=owner, lease_seconds=self.lease_seconds)
         if entry is None:
             return False
+        _LOGGER.info(
+            "feature_queue_claimed",
+            feature_id=entry.feature_id,
+            intent=entry.intent,
+            attempt=entry.attempt,
+            owner=owner,
+        )
         renewal = asyncio.create_task(self._renew(entry.feature_id, owner))
         try:
             credentials = await self.credentials_for(entry.requested_by)
+            _LOGGER.info(
+                "feature_queue_credentials_resolved",
+                feature_id=entry.feature_id,
+                requested_by=entry.requested_by,
+            )
             missing = _missing_providers(
                 entry.execution_mode,
                 entry.agent_platform,
@@ -1033,7 +1078,19 @@ class FeatureQueueDispatcher:
         while True:
             try:
                 worked = await self.run_once()
-            except asyncio.CancelledError:
+            except asyncio.CancelledError as error:
+                # Diagnostic only: this branch used to re-raise silently on the assumption it
+                # only ever fires at app shutdown. Two features (AB-201, AB-202) have shown a
+                # claim go dark immediately after a human action with no log and no terminal
+                # queue state, which is the one signature this branch could produce. Logging
+                # before re-raising costs nothing and either confirms or rules this out.
+                current_task = asyncio.current_task()
+                _LOGGER.warning(
+                    "feature_queue_worker_cancelled",
+                    detail=repr(error),
+                    cause=repr(error.__cause__) if error.__cause__ else None,
+                    task=current_task.get_name() if current_task else None,
+                )
                 raise
             except Exception:  # noqa: BLE001 - a worker must outlive one bad claim
                 _LOGGER.exception("feature_queue_worker_error")

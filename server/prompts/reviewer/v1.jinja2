@@ -96,6 +96,20 @@ Rules:
   requirement needs, cite the section that should have covered it, or the `sections_absent`
   entry, and say that in the description. Never invent a section name: a reference the
   contract does not contain is recorded against the review.
+- The input's `execution_grounded_routes` list, where present, is not a reading of source text
+  the way the contract and the repository's own files are -- it is what a named route file
+  itself registered when it was required and its real router object was read, exactly as the
+  framework itself would answer it. Where it covers a file, treat its `routes` as the ground
+  truth for what that file registers, over what a path's final segment or a naming convention
+  would suggest. A route this lists that the contract does not, or a contract path this
+  evidence shows is not what the file actually registers, is the application and the contract
+  disagreeing -- report that as a `contract` finding about the mismatch, never as a defect in
+  code this evidence just confirmed is correct. An entry with a non-null `error`, or a file this
+  list does not cover at all, carries no verdict either way: read the repository's own files for
+  it, the same as always. This is the one way AB-Feature-199 and -204 were both blocked by a
+  contract naming the wrong fragment of a route the repository already had: the contract said
+  `/ad-units/export`, the code correctly called `/service-requests/ad-units/export`, and nothing
+  before this evidence existed could tell the two apart with certainty.
 {% endif %}{% if design_snapshot | default("") %}- The design this workstream was asked to build is quoted below under "The design in scope".
   Judge the change against that design's **names and structure**, and never against an
   appearance you cannot see. You are reading a diff and a test log: you cannot judge pixel

@@ -295,6 +295,18 @@ source area too, so the new code is registered rather than merely written. Do no
 that is absent from the reconnaissance, and do not infer a language, framework, package manager,
 or layout from a repository's role when the evidence says otherwise.
 
+Before naming a new endpoint, check that repository's `registered_routes`: if one already serves
+the same capability the requirement describes, reference that existing method and path in the
+contract, whatever it is spelled, rather than adding a new path or an extra prefix beside it. A
+route that already exists is a route to reuse, not a reason to add a second one.
+
+Every endpoint's `path` must be the complete, externally reachable path, never only the local
+fragment a route registers on its own router. A router mounted under a prefix (`router.use(
+'/service-requests', serviceRequestRoutes)`) is only reachable at that prefix plus its own route
+(`/service-requests/ad-units/export`), not at the route alone (`/ad-units/export`) -- the latter
+looks plausible and is not real. When `registered_routes` names an existing route, copy its
+`path` exactly as given, mount prefix included; it is already the complete path.
+
 Read `contradicted_premises` before assigning anything. Each one is a requirement premise the
 checkout does not support, and a workstream scoped to it cannot be completed by any attempt: the
 implementation would be rejected for failing a criterion nothing in the repository can satisfy.

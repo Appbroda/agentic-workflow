@@ -20,10 +20,13 @@ from pathlib import Path, PurePosixPath
 from pydantic import Field
 
 from state.models import StateModel
+from tools.api_surface import RegisteredRoute, extract_registered_routes
+from tools.channel_packages import ConfiguredChannel, configured_channels
 from tools.file_tools import (
     PathLike,
     carries_key_material,
     is_model_safe_context_path,
+    registers_modules,
     resolve_workspace_root,
 )
 from tools.repository_layout import inspect_repository_layout
@@ -48,32 +51,6 @@ _REFERENCE_PATTERNS = (
 )
 # Below this a file is an ordinary consumer of a couple of helpers, not an assembly point.
 _MIN_WIRING_REFERENCES = 2
-# Path words that say a file mounts modules rather than merely importing some. Reference
-# counting alone cannot tell an assembly point from a large consumer: this repository's
-# `server/auth/models.js` and `services/IDRefresh/ironsource.service.js` both pull in several
-# siblings and register nothing, and they outranked the route index that does.
-# Tokens that identify a registry only as a whole filename. `App.js` is a React root;
-# `AddAppModal.js` is a modal. Matching "app" as one camel-case fragment made every file
-# whose name mentions an app a registry, which in an ad-management console is very nearly
-# all of them: AB-Feature-112's console was told twelve times to mount bulk deletion in
-# `src/components/apps/AddAppModal.js`, and burned every review cycle on it.
-_REGISTRAR_STEM_TOKENS = frozenset({"app", "index", "main", "root"})
-# Tokens that identify a registry wherever they appear in the name, because they describe
-# the job rather than the subject: a sidebar or a router mounts things whatever it is called.
-_REGISTRAR_FRAGMENT_TOKENS = frozenset(
-    {
-        "menu",
-        "nav",
-        "navigation",
-        "registry",
-        "route",
-        "router",
-        "routes",
-        "sidebar",
-    }
-)
-# A directory says where the repository puts this kind of file, so either sort counts there.
-_REGISTRAR_TOKENS = _REGISTRAR_STEM_TOKENS | _REGISTRAR_FRAGMENT_TOKENS
 _SYMBOL_PATTERN = re.compile(
     r"(?:^|\n)\s*(?:export\s+)?(?:default\s+)?"
     r"(?:async\s+)?(?:class|def|function|const|let|var)\s+([A-Za-z_$][A-Za-z0-9_$]*)"
@@ -84,6 +61,8 @@ _MAX_WIRING_FILES = 12
 _MAX_SYMBOL_FILES = 60
 _MAX_SYMBOLS_PER_FILE = 24
 _MAX_FILE_BYTES = 200_000
+_MAX_REGISTERED_ROUTES = 600
+_MAX_CONFIGURED_CHANNELS = 50
 
 
 class ModuleSymbols(StateModel):
@@ -107,6 +86,23 @@ class RepositoryReconnaissanceEvidence(StateModel):
     module_symbols: list[ModuleSymbols] = Field(default_factory=list)
     file_inventory: list[str] = Field(default_factory=list)
     omitted_inventory_file_count: int = 0
+    # Every method+path this checkout's own router registrations actually expose, read the same
+    # way `tools/api_surface.py` already reads a providing repository at integration-review
+    # time -- just earlier, over the whole checkout instead of a diff of changed files, and
+    # before a contract names an endpoint rather than after. AB-Feature-187 is the motivating
+    # case: the PRD named an existing operation, reconnaissance even named its symbol correctly,
+    # but nothing compared the new contract's path text against the route this checkout already
+    # registers for it (plural `/service-requests/...`), so a singular typo shipped unnoticed.
+    registered_routes: list[RegisteredRoute] = Field(default_factory=list)
+    # Every channel package (an HTTP client, a database driver, a queue client) this checkout
+    # already configures, and the file that configures it -- read the same way
+    # `tools/channel_packages.py` already reads a change's own sources at engineer and review
+    # time, just earlier and over every file instead of a diff, and before any code is written
+    # rather than after. AB-Feature-188 is the motivating case: a new Axios call bypassed the
+    # repository's own configured client, and nothing caught it until an independent review read
+    # the completed diff a full attempt-cycle later -- by which point the configuration module
+    # was never shown to the attempt that needed it.
+    configured_channels: list[ConfiguredChannel] = Field(default_factory=list)
 
 
 def inspect_repository_for_planning(
@@ -155,7 +151,42 @@ def inspect_repository_for_planning(
         ],
         file_inventory=inventory[:_MAX_INVENTORY_FILES],
         omitted_inventory_file_count=max(0, len(inventory) - _MAX_INVENTORY_FILES),
+        registered_routes=_registered_routes(root, inventory[:_MAX_INVENTORY_FILES]),
+        configured_channels=_configured_channels(root, inventory[:_MAX_INVENTORY_FILES]),
     )
+
+
+def _registered_routes(root: Path, inventory: list[str]) -> list[RegisteredRoute]:
+    """Return this checkout's own registered routes, deduplicated and bounded.
+
+    `extract_registered_routes` is written for a diff of changed files and can repeat a bare
+    route once per observed mount prefix; over a whole checkout that repetition is only noise,
+    so it is collapsed here by method and path before anything is capped or stored.
+    """
+    deduped = list(
+        {
+            (route.method, route.path): route
+            for route in extract_registered_routes(root, inventory)
+        }.values()
+    )
+    return deduped[:_MAX_REGISTERED_ROUTES]
+
+
+def _configured_channels(root: Path, inventory: list[str]) -> list[ConfiguredChannel]:
+    """Return every channel package this checkout itself configures, bounded.
+
+    Unlike `extract_registered_routes`, `configured_channels` is a pure per-file function with
+    no file I/O of its own, so each candidate is read here the same bounded, safety-filtered
+    way every other reconnaissance read is: through `_read_source`, which withholds anything
+    oversized or carrying key material rather than handing it to a pattern scan.
+    """
+    found: list[ConfiguredChannel] = []
+    for relative_path in inventory:
+        source = _read_source(root / relative_path)
+        if source is None:
+            continue
+        found.extend(configured_channels(relative_path, source))
+    return found[:_MAX_CONFIGURED_CHANNELS]
 
 
 def _own_reference_count(content: str | None, module_names: set[str], path: Path) -> int:
@@ -194,21 +225,6 @@ def _referenced_module_name(reference: str) -> str:
     if suffix and suffix.lower() in _SOURCE_SUFFIXES:
         name = name[: -len(suffix)]
     return name.lower()
-
-
-def registers_modules(path: str) -> bool:
-    """Judge whether a file mounts modules, rather than merely mentioning one.
-
-    Derived from the path the repository already chose, so it stays a question about the
-    checkout rather than an assumption about a framework.
-    """
-    posix = PurePosixPath(path)
-    if {part.lower() for part in posix.parts[:-1]} & _REGISTRAR_TOKENS:
-        return True
-    if posix.stem.lower() in _REGISTRAR_STEM_TOKENS:
-        return True
-    fragments = {token.lower() for token in re.findall(r"[A-Z]?[a-z]+", posix.stem)}
-    return bool(fragments & _REGISTRAR_FRAGMENT_TOKENS)
 
 
 def _read_source(path: Path) -> str | None:

@@ -52,9 +52,8 @@ from typing import Protocol
 
 from services.cancellation import CancellationToken, MockCancellationToken
 from services.process_runner import ProcessRunner, repository_subprocess_environment
-from tools.file_tools import PathLike
+from tools.file_tools import PathLike, registers_modules
 from tools.implementation_completeness import classify_file_change
-from tools.repository_reconnaissance import registers_modules
 
 _LOGGER = logging.getLogger(__name__)
 

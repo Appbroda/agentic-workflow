@@ -12,8 +12,13 @@ from pydantic import HttpUrl, ValidationError
 
 from adapters.llm_adapter import ImageInput, LLMResponse
 from agents.planner.feature_planner import DeterministicFeaturePlanner, FeaturePlannerAgent
-from agents.shared.contracts import AgentArtifactError
-from artifacts.schemas import Requirement, TechnicalPRDArtifact, WorkstreamTaskDependency
+from agents.shared.contracts import AgentArtifactError, create_artifact
+from artifacts.schemas import (
+    RepositoryReconnaissanceArtifact,
+    Requirement,
+    TechnicalPRDArtifact,
+    WorkstreamTaskDependency,
+)
 from prompts.prompt_loader import PromptLoader
 from services.feature_runtime import _child_task_plan
 from state.enums import ChildWorkflowStatus, WorkstreamRole
@@ -790,6 +795,35 @@ def _contract_section_plan(*, implemented: list[str], consumed: list[str]) -> di
     return plan
 
 
+def _reconnaissance_with_registered_route(
+    *,
+    repository_id: str,
+    method: str,
+    path: str,
+    source_path: str = "routes/index.route.js",
+) -> RepositoryReconnaissanceArtifact:
+    """Build a minimal reconnaissance artifact naming one real registered route."""
+    return create_artifact(
+        RepositoryReconnaissanceArtifact,
+        workflow_id="feature-plan-repair",
+        artifact_id=f"003_repository_reconnaissance.{repository_id}.json",
+        producer="repository_recon",
+        metadata={},
+        payload={
+            "feature_id": "feature-plan-repair",
+            "repository_id": repository_id,
+            "repository_revision": "rev-1",
+            "summary": "A checkout summary.",
+            "source_areas": [],
+            "test_areas": [],
+            "conventions": [],
+            "shared_utilities": [],
+            "contradicted_premises": [],
+            "registered_routes": [{"method": method, "path": path, "source_path": source_path}],
+        },
+    )
+
+
 def _planning_response_with_contract(
     plan: dict[str, Any], *, operation_ids: list[str]
 ) -> dict[str, Any]:
@@ -866,6 +900,127 @@ async def test_a_workstream_may_not_be_told_to_build_a_contract_section_that_doe
     assert named <= defined, "the engineer must only be sent sections the contract defines"
     # The repair was told exactly which name was wrong, not merely that something was.
     assert "getSomethingNobodyDefined" in client.calls[1][0]
+
+
+@pytest.mark.asyncio
+async def test_a_get_endpoint_requiring_a_request_body_is_repaired_not_shipped() -> None:
+    """AB-Feature-184's exact reproduction, caught before any repository writes code.
+
+    The contract specified a GET endpoint whose own body schema required an empty object --
+    nothing downstream ever questioned it, so both repositories implemented it faithfully and
+    the defect reached production. This exercises the real `SpectralContractLinter` (not a
+    fake process runner), proving the wiring end to end: the planner's own bounded repair path
+    catches it the same way it already catches an invented contract section.
+    """
+    plan = _contract_section_plan(implemented=["getServerStatus"], consumed=["getServerStatus"])
+    invalid = _planning_response_with_contract(plan, operation_ids=["getServerStatus"])
+    invalid["integration_contract"]["endpoints"][0]["request_schema"] = {
+        "type": "object",
+        "maxProperties": 0,
+    }
+    repaired = _planning_response_with_contract(plan, operation_ids=["getServerStatus"])
+    client = QueuedLLMClient([invalid, repaired])
+    planner = FeaturePlannerAgent(
+        llm_client=client,
+        prompt_loader=PromptLoader(),
+        contract_generator=MockContractCodeGenerator(),
+    )
+
+    _architecture, contract, _plan = await planner.plan(
+        feature_id="feature-plan-repair",
+        technical_prd=_technical_prd(),
+        repositories=_repositories(),
+    )
+
+    assert len(client.calls) == 2, "a structurally invalid contract must be repaired, not shipped"
+    (endpoint,) = contract.endpoints
+    assert endpoint.request_schema is None
+    assert "get-request-no-body" in client.calls[1][0]
+
+
+@pytest.mark.asyncio
+async def test_a_contract_path_contradicting_a_registered_route_is_repaired_not_shipped() -> None:
+    """AB-Feature-187's exact reproduction, caught before any repository writes code.
+
+    The PRD extended an existing operation the backend already registers as
+    `/service-requests/export-active-ad-units` (plural); the generated contract named it
+    `/service-request/export-active-ad-units` (singular) instead. Reconnaissance had already
+    read the real route by the time planning ran -- this proves the planner actually checks the
+    contract against it, through the same bounded repair path as every other planner defect.
+    """
+    plan = _contract_section_plan(
+        implemented=["exportActiveAdUnits"], consumed=["exportActiveAdUnits"]
+    )
+    invalid = _planning_response_with_contract(plan, operation_ids=["exportActiveAdUnits"])
+    invalid["integration_contract"]["endpoints"][0]["path"] = (
+        "/service-request/export-active-ad-units"
+    )
+    repaired = _planning_response_with_contract(plan, operation_ids=["exportActiveAdUnits"])
+    repaired["integration_contract"]["endpoints"][0]["path"] = (
+        "/service-requests/export-active-ad-units"
+    )
+    client = QueuedLLMClient([invalid, repaired])
+    planner = FeaturePlannerAgent(
+        llm_client=client,
+        prompt_loader=PromptLoader(),
+        contract_generator=MockContractCodeGenerator(),
+    )
+
+    _architecture, contract, _plan = await planner.plan(
+        feature_id="feature-plan-repair",
+        technical_prd=_technical_prd(),
+        repositories=_repositories(),
+        reconnaissance=[
+            _reconnaissance_with_registered_route(
+                repository_id="backend",
+                method="GET",
+                path="/service-requests/export-active-ad-units",
+            )
+        ],
+    )
+
+    assert len(client.calls) == 2, (
+        "a path a repository's own registered routes contradict must be repaired, not shipped"
+    )
+    (endpoint,) = contract.endpoints
+    assert endpoint.path == "/service-requests/export-active-ad-units"
+    assert "already registers" in client.calls[1][0]
+    assert "/service-request/export-active-ad-units" in client.calls[1][0]
+
+
+@pytest.mark.asyncio
+async def test_a_contract_path_matching_a_registered_route_is_not_repaired() -> None:
+    """A path the backend's own routes confirm exactly must not be flagged as a contradiction."""
+    plan = _contract_section_plan(
+        implemented=["exportActiveAdUnits"], consumed=["exportActiveAdUnits"]
+    )
+    response = _planning_response_with_contract(plan, operation_ids=["exportActiveAdUnits"])
+    response["integration_contract"]["endpoints"][0]["path"] = (
+        "/service-requests/export-active-ad-units"
+    )
+    client = QueuedLLMClient([response])
+    planner = FeaturePlannerAgent(
+        llm_client=client,
+        prompt_loader=PromptLoader(),
+        contract_generator=MockContractCodeGenerator(),
+    )
+
+    _architecture, contract, _plan = await planner.plan(
+        feature_id="feature-plan-repair",
+        technical_prd=_technical_prd(),
+        repositories=_repositories(),
+        reconnaissance=[
+            _reconnaissance_with_registered_route(
+                repository_id="backend",
+                method="GET",
+                path="/service-requests/export-active-ad-units",
+            )
+        ],
+    )
+
+    assert len(client.calls) == 1, "a path the repository's own routes confirm must not repair"
+    (endpoint,) = contract.endpoints
+    assert endpoint.path == "/service-requests/export-active-ad-units"
 
 
 @pytest.mark.asyncio
