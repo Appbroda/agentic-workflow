@@ -13,3 +13,16 @@ module whose return value feeds a dependency list -- `useEffect`, `useCallback`,
 an equivalent elsewhere in this ecosystem -- must return the same values across calls. A mock
 that returns a new function or object identity every render reproduces the exact infinite
 re-render loop a real bug would, and hangs the test runner rather than failing it cleanly.
+
+A mock's implementation does not necessarily survive from one test to the next: a project's own
+test configuration, or an existing hook in its own test files, can clear every mock's behavior
+between tests -- Jest's `resetMocks`/`restoreMocks`, a comparable option in whichever test
+runner this repository uses, or a plain `beforeEach`/`afterEach` already calling the equivalent
+by hand -- and this reaches a mock's implementation however it was given, not only one added
+later with `.mockImplementation()`/`.mockReturnValue()`: one supplied inline at the mock's own
+creation is cleared the same way. Before relying on a mock written once at the top of a file to
+still behave that way inside every test that uses it, check this repository's own test
+configuration and setup files for exactly this. Where one clears mocks between tests, establish
+the behavior a test depends on in that test's own `beforeEach`, the same way this repository's
+existing tests already do for a comparable mock, rather than only at the point the mock was
+constructed.
