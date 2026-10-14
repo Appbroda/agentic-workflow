@@ -65,6 +65,7 @@ from agents.shared.contracts import (
     AgentArtifactError,
     artifact_id_matches_lineage,
     attempt_artifact_id,
+    create_artifact,
     safe_error_diagnostics,
 )
 from artifacts.schemas import (
@@ -79,6 +80,7 @@ from artifacts.schemas import (
     Milestone,
     PlannedTask,
     PRDArtifact,
+    RepositoryReconnaissanceArtifact,
     Requirement,
     RequirementCheck,
     ReviewArtifact,
@@ -1586,6 +1588,71 @@ async def test_a_first_attempt_is_shown_the_files_this_repository_registers_modu
     assert "src/routes/adunit.route.py" in shown
     # It is offered as evidence for where to wire, not as a file to change unconditionally.
     assert snapshot["execution_context"]["registry_paths"] == ["src/routes/adunit.route.py"]
+
+
+@pytest.mark.asyncio
+async def test_a_first_attempt_is_shown_the_channel_it_has_not_imported_yet(
+    tmp_path: Path,
+) -> None:
+    """A channel's configuration module reaches the snapshot before any attempt imports it.
+
+    AB-Feature-188's frontend called `axios.request` bare in a file that, before this attempt,
+    imported no channel package at all -- so the diff-relative channel-seam scan had nothing to
+    search co-importers for, and the module that configures axios (base URL, auth interceptor)
+    was never shown. Reconnaissance already read every file in the checkout before this attempt
+    started, so it can name that module regardless of what the change itself has written yet.
+    """
+
+    class RecordingCodingExecutor(MockCodingExecutor):
+        def __init__(self) -> None:
+            super().__init__(file_updates={"src/service.py": "value = 1\n"})
+            self.input_text = ""
+
+        async def execute(self, **kwargs: Any) -> Any:
+            self.input_text = str(kwargs["input_text"])
+            return await super().execute(**kwargs)
+
+    configuration = tmp_path / "src" / "config" / "axios.js"
+    configuration.parent.mkdir(parents=True, exist_ok=True)
+    configuration.write_text(
+        "import axios from 'axios';\nexport default axios.create({ baseURL: '/api' });\n",
+        encoding="utf-8",
+    )
+    # Crowd the budget so the configuration module can only appear by being required.
+    crowd = tmp_path / "src" / "agents"
+    crowd.mkdir(parents=True, exist_ok=True)
+    for index in range(_REPOSITORY_CONTEXT_MAX_FILES + 10):
+        (crowd / f"agents_workflow_artifact_{index}.py").write_text(
+            f"VALUE = {index}\n", encoding="utf-8"
+        )
+    reconnaissance = create_artifact(
+        RepositoryReconnaissanceArtifact,
+        workflow_id="workflow-1",
+        artifact_id="015_repository_reconnaissance.workspace-1.json",
+        producer="repository_recon",
+        metadata={},
+        payload={
+            "feature_id": "workflow-1",
+            "repository_id": "workspace-1",
+            "repository_revision": "rev-1",
+            "summary": "A checkout summary.",
+            "source_areas": [],
+            "test_areas": [],
+            "conventions": [],
+            "shared_utilities": [],
+            "contradicted_premises": [],
+            "configured_channels": [{"package": "axios", "source_path": "src/config/axios.js"}],
+        },
+    )
+    executor = RecordingCodingExecutor()
+    agent = EngineerAgent(prompt_loader=PromptLoader(), coding_executor=executor)
+    plan = task_plan_artifact()
+
+    await agent.run(agent_state(tmp_path, [reconnaissance, plan]))
+
+    snapshot = json.loads(executor.input_text)
+    shown = {item["path"] for item in snapshot["repository_context"]["files"]}
+    assert "src/config/axios.js" in shown
 
 
 @pytest.mark.asyncio

@@ -2138,13 +2138,19 @@ class EngineerAgent:
                 diagnostic_file_paths=diagnostic_file_paths,
                 # The modules that co-import a channel package this change's own code
                 # imports -- the seam the change stands on, which the imported-modules
-                # argument above structurally cannot surface for a bare package import.
-                channel_seam_paths=_channel_seam_paths(
-                    changed_paths,
-                    existing_files,
-                    file_tools,
-                    self._previous_attempt_diff or "",
-                    scan_sources,
+                # argument above structurally cannot surface for a bare package import --
+                # plus every channel-configuring file reconnaissance already found for this
+                # repository, unconditionally, so a change that has not yet written its own
+                # channel import still sees them on the attempt that is about to add one.
+                channel_seam_paths=(
+                    *_channel_seam_paths(
+                        changed_paths,
+                        existing_files,
+                        file_tools,
+                        self._previous_attempt_diff or "",
+                        scan_sources,
+                    ),
+                    *_reconnaissance_configured_channel_paths(state),
                 ),
             ),
             required_line_numbers=_required_anchor_lines(
@@ -3265,6 +3271,28 @@ def _change_sources(
         except (FileNotFoundError, UnicodeDecodeError, ValueError, OSError):
             continue
     return _assigned_first(sources, assigned_paths)
+
+
+def _reconnaissance_configured_channel_paths(state: AgentState) -> tuple[str, ...]:
+    """Return every channel-configuring file reconnaissance already found for this repository.
+
+    Unconditional, unlike `_channel_seam_paths` below: that tier can only name a module
+    `_change_sources` already imports a channel package through, so a change whose own sources
+    do not yet import one -- a brand-new file, or an edit not yet written to an existing one --
+    is structurally invisible to it on the very attempt that is about to add that import.
+    AB-Feature-188's frontend is exactly this case: the file that later called `axios.request`
+    bare had no channel import before this attempt wrote one. Reconnaissance read every file in
+    this checkout before any attempt ran, so it says the same thing on attempt 0 that it says on
+    attempt 4.
+    """
+    repository_id = state["workspace_descriptor"].workspace_id
+    for artifact in state["artifacts"]:
+        if (
+            isinstance(artifact, RepositoryReconnaissanceArtifact)
+            and artifact.repository_id == repository_id
+        ):
+            return tuple(dict.fromkeys(item.source_path for item in artifact.configured_channels))
+    return ()
 
 
 def _channel_seam_paths(
