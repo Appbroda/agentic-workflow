@@ -43,6 +43,7 @@ from tools.validation_tools import (
     _HeadAndTail,
     _result,
     _summary_with_references,
+    _without_rendered_markup_dumps,
     _workspace_validation_commands,
     run_pytest,
     run_ruff,
@@ -1189,6 +1190,125 @@ def test_a_tail_bounded_report_still_names_the_file_the_head_saw(tmp_path: Path)
     assert "src/pages/AllApps.test.js" in references
     # Package-store internals are not files a repair may edit, even when present on disk.
     assert "react-dom.development.js" not in references
+
+
+def _component_dump_crash_output(*, dump_lines: int = 400) -> str:
+    """A React-Testing-Library-shaped failure: the assertion at the head, a DOM dump after.
+
+    This is AB-Feature-186's failure shape. Unlike `_framework_crash_output`'s package-store
+    stack frames, a `prettyDOM`-style dump names no file at all, so it passes
+    `_names_only_package_store_files` unfiltered and -- being far larger than the budget on
+    its own -- dominates a plain tail-bound, pushing the assertion above it out entirely.
+    """
+    tag_line = "                  \x1b[36m<div\x1b[39m"
+    attribute_line = (
+        "                    \x1b[33mclass\x1b[39m="
+        '\x1b[32m"MuiOutlinedInput-root MuiInputBase-root"\x1b[39m'
+    )
+    dump = "\n".join(tag_line if i % 2 == 0 else attribute_line for i in range(dump_lines))
+    return (
+        "FAIL src/components/serviceRequests/CreateServiceRequestModel.test.js\n"
+        "  ● CreateServiceRequestModel › submits only the selected statuses\n\n"
+        "    TestingLibraryElementError: Unable to find an element with the text: "
+        "Service type.\n"
+        "      68 |   render(<CreateServiceRequestModel />);\n"
+        "    > 70 |   expect(screen.getByText('Service type')).toBeInTheDocument();\n"
+        f"{dump}\n"
+        "Tests:       1 failed, 3 passed, 4 total\n"
+    )
+
+
+def test_a_rendered_markup_dump_does_not_crowd_out_the_assertion_it_follows() -> None:
+    """A component-testing dump is collapsed before bounding, the same way stack frames are.
+
+    AB-Feature-186's frontend rewrote the same files on three straight attempts and never
+    converged, because every one of these failures reached it as a multi-kilobyte DOM dump
+    with the actual `TestingLibraryElementError` line nowhere in the kept tail.
+    """
+    collapsed = _without_rendered_markup_dumps(_component_dump_crash_output())
+
+    assert "Unable to find an element with the text: Service type" in collapsed
+    assert "rendered component markup omitted" in collapsed
+    assert "MuiOutlinedInput-root" not in collapsed
+
+    result = ValidationResult(
+        command=("npm", "run", "test"),
+        return_code=1,
+        stdout=_component_dump_crash_output(),
+        stderr="",
+        timed_out=False,
+        duration_seconds=1.2,
+        validation_type="test",
+    )
+
+    assert "Unable to find an element with the text: Service type" in result.stdout_summary
+
+
+def _accessible_roles_crash_output(*, body_lines: int = 400) -> str:
+    """React Testing Library's "multiple accessible roles" diagnostic, AB-Feature-187's shape.
+
+    Unlike `_component_dump_crash_output`'s plain tag dump, this one intersperses short label
+    lines (`Name "Confirm":`, bare rules, bare role words like `listbox:`) between markup
+    snippets, then ends with RTL's own fixed preface to a complete document dump (`Ignored
+    nodes: comments, ...`). AB-186's fix (collapsing a strict tag-or-attribute run) left this
+    shape almost entirely uncollapsed, because the label lines kept resetting the run.
+    """
+    body = "\n".join('    <div class="MuiModal-root">' for _ in range(body_lines))
+    return (
+        "FAIL src/components/serviceRequests/CreateServiceRequestModel.test.js\n"
+        "  ● CreateServiceRequestModel › submits selected statuses\n\n"
+        '    TestingLibraryElementError: Found multiple elements with the role "button"\n'
+        "    Here are the accessible roles:\n\n"
+        "      button:\n\n"
+        '      Name "Confirm":\n'
+        "      <button\n"
+        '        class="MuiButton-root"\n'
+        '        type="button"\n'
+        "      />\n\n"
+        '      Name "Cancel":\n'
+        "      <button\n"
+        '        class="MuiButton-root"\n'
+        '        type="button"\n'
+        "      />\n\n"
+        "      --------------------------------------------------\n"
+        "      listbox:\n\n"
+        '      Name "Ad unit statuses":\n'
+        "      <ul\n"
+        '        class="MuiAutocomplete-listbox"\n'
+        '        role="listbox"\n'
+        "      />\n\n"
+        "      --------------------------------------------------\n\n"
+        "    Ignored nodes: comments, <script />, <style />\n"
+        f"{body}\n"
+    )
+
+
+def test_an_accessible_roles_diagnostic_does_not_crowd_out_the_assertion_either() -> None:
+    """AB-Feature-187's exact recurrence: the markup-dump fix was real but incomplete.
+
+    The fix deployed for AB-186 was live and had collapsed the small, scattered option-tag
+    runs -- confirmed directly from AB-187's own stored failure text. But the bulk of the same
+    failure, this "accessible roles" diagnostic followed by a full-document dump, still buried
+    the assertion, because label lines between markup snippets broke the contiguous run, and
+    nothing recognized RTL's own fixed `Ignored nodes:` preface as a hard boundary.
+    """
+    collapsed = _without_rendered_markup_dumps(_accessible_roles_crash_output())
+
+    assert 'Found multiple elements with the role "button"' in collapsed
+    assert "rendered-document dump omitted" in collapsed
+    assert "MuiModal-root" not in collapsed
+
+    result = ValidationResult(
+        command=("npm", "run", "test"),
+        return_code=1,
+        stdout=_accessible_roles_crash_output(),
+        stderr="",
+        timed_out=False,
+        duration_seconds=1.2,
+        validation_type="test",
+    )
+
+    assert 'Found multiple elements with the role "button"' in result.stdout_summary
 
 
 def test_workspace_references_promote_the_product_file_into_repair_regions(
