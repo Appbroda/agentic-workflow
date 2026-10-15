@@ -393,14 +393,15 @@ export const EMPTY_REPOSITORY: NewRepositoryValues = {
 };
 
 /**
- * Platforms temporarily withheld from new submissions. Their pairings render disabled in the
- * form with "(Not ready)" and a selection on one refuses to submit — never hidden, never
+ * Platforms withheld from new submissions. Empty today: every platform the deployment has
+ * configured is offered. Add a platform here to withhold it — its pairings then render disabled
+ * in the form with "(Not ready)" and a selection on one refuses to submit, never hidden, never
  * substituted, the same posture an unconfigured pairing gets. A product gate, not deployment
- * configuration: the pairings stay configured on the server and existing features keep
- * running. Remove an entry to re-open the platform; the first-visit default below and the
- * remembered-provider preselection both respect this set.
+ * configuration: a withheld platform stays configured on the server and its existing features
+ * keep running. The first-visit default below and the remembered-provider preselection both
+ * respect this set, so neither ever opens the form on a selection it would refuse.
  */
-export const PLATFORMS_NOT_READY: ReadonlySet<string> = new Set(['anthropic']);
+export const PLATFORMS_NOT_READY: ReadonlySet<string> = new Set<string>();
 
 export const DEFAULT_VALUES: NewFeatureValues = {
   // Live, because that is what somebody opening this page came to do: mock plans and reviews
@@ -408,13 +409,13 @@ export const DEFAULT_VALUES: NewFeatureValues = {
   // not what a real submission wants. The mode sits on the form rather than behind the
   // advanced disclosure precisely because this default has consequences.
   execution_mode: 'live',
-  // OpenAI while Claude sits behind the PLATFORMS_NOT_READY gate above: a first visit must
-  // not open on a selection the form itself refuses. The form prefers the provider the
-  // operator last used (see `preferredAgentPlatform`); this is the answer for a first
-  // visit. If the resulting selection is unconfigured on this deployment the form says so
-  // and refuses to submit -- it never re-aims the selection itself, which is what sent
-  // AB-Feature-173 to the wrong platform. The choice is fixed for the feature's life,
-  // which is why it sits on the form rather than behind the disclosure.
+  // OpenAI, as the answer for a first visit and nothing more. The form prefers the provider
+  // the operator last used (see `preferredAgentPlatform`); this is what a browser with no
+  // memory of one gets. If the resulting selection is unconfigured on this deployment -- or
+  // withheld by the gate above -- the form says so and refuses to submit: it never re-aims
+  // the selection itself, which is what sent AB-Feature-173 to the wrong platform. The
+  // choice is fixed for the feature's life, which is why it sits on the form rather than
+  // behind the disclosure.
   agent_platform: 'openai',
   // Standard. The server's own default is `high` for API compatibility -- a caller that
   // never heard of tiers gets exactly today's behaviour -- so an untouched form must say
