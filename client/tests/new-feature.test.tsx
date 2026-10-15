@@ -148,7 +148,7 @@ describe('NewFeaturePage', () => {
     expect(options.credentials).toBeUndefined();
   });
 
-  it('offers six labeled options, preselects Standard on OpenAI, and gates Claude as not ready', async () => {
+  it('offers six labeled options and preselects Standard on OpenAI', async () => {
     const createFeature = vi.fn().mockResolvedValue({ feature_id: 'feature-platform' });
     renderForm({ createFeature });
     const user = userEvent.setup();
@@ -160,22 +160,20 @@ describe('NewFeaturePage', () => {
     expect(platform).toBeVisible();
     expect(platform).toHaveValue('openai:medium');
     // All six (platform, tier) pairings stay listed, honestly labeled, from the saved real
-    // /setup payload. The OpenAI pairings are selectable; the Claude pairings are configured
-    // on the server but withheld by the not-ready gate — rendered disabled with the reason
-    // on the option itself, never hidden.
-    for (const name of ['OpenAI — Economy', 'OpenAI — Standard', 'OpenAI — Max']) {
-      expect(
-        within(platform as HTMLSelectElement).getByRole('option', { name }),
-      ).toBeEnabled();
-    }
+    // /setup payload — and all six are selectable, because the payload reports every one of
+    // them configured and no platform is withheld. A pairing is only ever disabled for a
+    // reason the option itself states; it is never hidden.
     for (const name of [
-      'Claude — Economy (Not ready)',
-      'Claude — Standard (Not ready)',
-      'Claude — Max (Not ready)',
+      'OpenAI — Economy',
+      'OpenAI — Standard',
+      'OpenAI — Max',
+      'Claude — Economy',
+      'Claude — Standard',
+      'Claude — Max',
     ]) {
       expect(
         within(platform as HTMLSelectElement).getByRole('option', { name }),
-      ).toBeDisabled();
+      ).toBeEnabled();
     }
 
     // The one thing a submitter cannot see for themselves: each stage of the work, the model
@@ -246,16 +244,17 @@ describe('NewFeaturePage', () => {
     ).toBeInTheDocument();
   });
 
-  it('falls back to OpenAI when the remembered provider is gated as not ready', async () => {
+  it('preselects Standard on a remembered Claude preference', async () => {
     window.localStorage.setItem('newFeature.lastAgentPlatform', 'anthropic');
     try {
       renderForm({ createFeature: vi.fn() });
 
       const platform = await screen.findByLabelText('Platform and performance tier');
-      // A remembered Claude preference must not open the form on a selection it refuses.
-      // The stored memory itself is kept, so re-opening the platform restores it.
-      expect(platform).toHaveValue('openai:medium');
-      expect(window.localStorage.getItem('newFeature.lastAgentPlatform')).toBe('anthropic');
+      // The remembered provider is honoured rather than the first-visit default -- and on
+      // Standard, because only the provider is remembered. Claude sat behind the not-ready
+      // gate once; a memory written back then is restored now that nothing is withheld,
+      // without the operator doing anything.
+      expect(platform).toHaveValue('anthropic:medium');
     } finally {
       window.localStorage.removeItem('newFeature.lastAgentPlatform');
     }

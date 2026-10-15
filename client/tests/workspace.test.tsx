@@ -404,6 +404,125 @@ describe('FeatureWorkspace', () => {
     expect(screen.getByRole('button', { name: 'Cancel feature' })).toBeInTheDocument();
   });
 
+  it('shows a contradiction question as a labeled sentence and two separated sides', async () => {
+    // The exact shape `contradiction_questions()` in
+    // `server/tools/requirement_reconciliation.py` composes: one fixed sentence, "First, {side
+    // A}. Second, {side B}.", then the ask. Each side here itself quotes a question and an
+    // answer, exactly as the server does -- a realistic case for the parser, not a toy one.
+    const question =
+      'These cannot both hold, so nothing is planned until you say which does. First, ' +
+      'the answer to "Where are existing service requests viewed or edited?" says: ' +
+      '"Follow what AB-console-admin-2.0 already does: no detail or edit module exists.". ' +
+      'Second, the answer to "Which endpoint supplies and updates saved requests?" says: ' +
+      '"Follow what admanager_console-2.0 already does: no such route is registered.". ' +
+      'Which one holds, and what should the other one become?';
+    renderWorkspace({
+      ...BASE,
+      getFeature: async () => ({
+        ...FEATURE,
+        status: 'waiting_for_human',
+        available_actions: ['ANSWER_CLARIFICATION', 'CANCEL_WORKFLOW'],
+      }),
+      getClarification: async () => ({
+        feature_id: FEATURE.feature_id,
+        awaiting_answers: true,
+        technical_prd_artifact_id: '002_technical_prd.revision-2.json',
+        clarification_rounds: 1,
+        max_clarification_rounds: 10,
+        questions: [
+          {
+            question_id: 'contradiction-1',
+            question,
+            rationale: 'These two cannot both be written down. The platform will not choose.',
+            required: true,
+            suggested_answer: '',
+            suggestion_source: '',
+            suggestion_confidence: null,
+          },
+        ],
+        previous_answers: {},
+        design_conflicts: [],
+      }),
+    });
+
+    await screen.findByText('This feature is waiting on you');
+    // The framing sentence, once, as its own line -- not repeated per side and not fused into
+    // either of them.
+    expect(
+      screen.getByText('These cannot both hold, so nothing is planned until you say which does.'),
+    ).toBeInTheDocument();
+    // Each side told apart into its question and its answer, by their quotes -- the connecting
+    // words ("the answer to", "says:") are gone, not just hidden behind the label.
+    const firstSide = screen
+      .getByText('Where are existing service requests viewed or edited?')
+      .closest('.contradiction__side') as HTMLElement;
+    expect(within(firstSide).getByText('Question')).toBeInTheDocument();
+    expect(within(firstSide).getByText('Answer')).toBeInTheDocument();
+    expect(
+      within(firstSide).getByText(/no detail or edit module exists/),
+    ).toBeInTheDocument();
+    expect(within(firstSide).queryByText(/says:/)).not.toBeInTheDocument();
+    const secondSide = screen
+      .getByText('Which endpoint supplies and updates saved requests?')
+      .closest('.contradiction__side') as HTMLElement;
+    expect(within(secondSide).getByText(/no such route is registered/)).toBeInTheDocument();
+    // The textarea is labeled by the actual ask, not by the whole paragraph.
+    expect(
+      screen.getByLabelText('Which one holds, and what should the other one become?'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows a contradiction side as-is when it does not quote a question and an answer', async () => {
+    // A requirement with no acceptance criteria recorded yet: one quoted span (the
+    // description), not two. Forcing a split here would show half a sentence as "the answer"
+    // to nothing; showing it unparsed is correct.
+    const question =
+      'These cannot both hold, so nothing is planned until you say which does. First, ' +
+      'the answer to "Where are existing service requests viewed or edited?" says: ' +
+      '"Follow what AB-console-admin-2.0 already does: no detail or edit module exists.". ' +
+      'Second, requirement REQ-7 says: "Saved requests must be editable from the console" ' +
+      'and is accepted on: . ' +
+      'Which one holds, and what should the other one become?';
+    renderWorkspace({
+      ...BASE,
+      getFeature: async () => ({
+        ...FEATURE,
+        status: 'waiting_for_human',
+        available_actions: ['ANSWER_CLARIFICATION', 'CANCEL_WORKFLOW'],
+      }),
+      getClarification: async () => ({
+        feature_id: FEATURE.feature_id,
+        awaiting_answers: true,
+        technical_prd_artifact_id: '002_technical_prd.revision-2.json',
+        clarification_rounds: 1,
+        max_clarification_rounds: 10,
+        questions: [
+          {
+            question_id: 'contradiction-2',
+            question,
+            rationale: 'These two cannot both be written down. The platform will not choose.',
+            required: true,
+            suggested_answer: '',
+            suggestion_source: '',
+            suggestion_confidence: null,
+          },
+        ],
+        previous_answers: {},
+        design_conflicts: [],
+      }),
+    });
+
+    await screen.findByText('This feature is waiting on you');
+    // The second side has one quoted span (the description), not the two-quote question/answer
+    // shape -- rendered exactly as composed, "says:" and all, not forced apart.
+    const secondSide = screen
+      .getByText(/requirement REQ-7 says/)
+      .closest('.contradiction__side') as HTMLElement;
+    expect(within(secondSide).getByText(/Saved requests must be editable/)).toBeInTheDocument();
+    expect(within(secondSide).queryByText('Question')).not.toBeInTheDocument();
+    expect(within(secondSide).queryByText('Answer')).not.toBeInTheDocument();
+  });
+
   it('does not ask the same questions again while their accepted resume is running', async () => {
     renderWorkspace({
       ...BASE,

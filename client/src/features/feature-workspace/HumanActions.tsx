@@ -5,6 +5,7 @@ import { ApiError, userMessage } from '@/api/errors';
 import { Dialog } from '@/components/ui/Dialog';
 import { StoredCredentialsNote } from '@/components/common/CredentialFields';
 import type { Clarification, Feature } from '@/schemas/feature';
+import { parseContradictionQuestion, quotedQuestionAndAnswer } from '@/utils/text';
 import { useRefreshFeature } from './hooks';
 import { ClarificationHistory } from './ClarificationHistory';
 
@@ -248,35 +249,74 @@ export function ClarificationPanel({
 
       <ClarificationHistory clarification={clarification} />
 
-      {clarification.questions.map((question) => (
-        <div key={question.question_id} className="field">
-          <label className="field__label" htmlFor={`q-${question.question_id}`}>
-            {question.question}
-          </label>
-          <p className="field__hint">{question.rationale}</p>
-          {question.suggested_answer ? (
-            // The suggestion is shown as well as prefilled, so that after an edit it is still
-            // possible to see what was proposed and where it came from.
-            <div className="suggestion">
-              <p className="suggestion__source">
-                {question.suggestion_source || 'Suggested answer'}
-                {question.suggestion_confidence ? (
-                  <span className="subtle"> · {question.suggestion_confidence} confidence</span>
-                ) : null}
-              </p>
-              <p className="suggestion__answer">{question.suggested_answer}</p>
-            </div>
-          ) : null}
-          <textarea
-            id={`q-${question.question_id}`}
-            rows={3}
-            value={answers[question.question_id] ?? ''}
-            onChange={(event) =>
-              setAnswers((current) => ({ ...current, [question.question_id]: event.target.value }))
-            }
-          />
-        </div>
-      ))}
+      {clarification.questions.map((question) => {
+        const contradiction = parseContradictionQuestion(question.question);
+        return (
+          <div key={question.question_id} className="field">
+            {contradiction ? (
+              <div className="contradiction">
+                <p className="contradiction__label">{contradiction.lede}</p>
+                <ol className="contradiction__sides">
+                  {contradiction.sides.map((side, index) => {
+                    const parsed = quotedQuestionAndAnswer(side);
+                    return (
+                      <li key={index} className="contradiction__side">
+                        {parsed ? (
+                          <>
+                            <p className="contradiction__label">Question</p>
+                            <p className="prose">{parsed.question}</p>
+                            <p className="contradiction__label">Answer</p>
+                            <p className="prose">{parsed.answer}</p>
+                          </>
+                        ) : (
+                          // Fewer than two quoted spans: not a shape worth guessing at, so the
+                          // side is shown exactly as composed rather than forcing a split.
+                          <p className="prose">{side}</p>
+                        )}
+                      </li>
+                    );
+                  })}
+                </ol>
+                <label
+                  className="field__label"
+                  htmlFor={`q-${question.question_id}`}
+                >
+                  {contradiction.ask}
+                </label>
+              </div>
+            ) : (
+              <label className="field__label" htmlFor={`q-${question.question_id}`}>
+                {question.question}
+              </label>
+            )}
+            <p className="field__hint">{question.rationale}</p>
+            {question.suggested_answer ? (
+              // The suggestion is shown as well as prefilled, so that after an edit it is still
+              // possible to see what was proposed and where it came from.
+              <div className="suggestion">
+                <p className="suggestion__source">
+                  {question.suggestion_source || 'Suggested answer'}
+                  {question.suggestion_confidence ? (
+                    <span className="subtle"> · {question.suggestion_confidence} confidence</span>
+                  ) : null}
+                </p>
+                <p className="suggestion__answer">{question.suggested_answer}</p>
+              </div>
+            ) : null}
+            <textarea
+              id={`q-${question.question_id}`}
+              rows={3}
+              value={answers[question.question_id] ?? ''}
+              onChange={(event) =>
+                setAnswers((current) => ({
+                  ...current,
+                  [question.question_id]: event.target.value,
+                }))
+              }
+            />
+          </div>
+        );
+      })}
 
       {submit.isError ? <ActionError error={submit.error} /> : null}
 

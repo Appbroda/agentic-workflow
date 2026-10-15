@@ -1992,6 +1992,29 @@ code, pre, kbd { font-family: var(--font-mono); }
 .field__label { font-size: var(--text-base); font-weight: var(--weight-medium); }
 
 /*
+ * A contradiction question reads as one run-on paragraph otherwise: the same framing sentence
+ * every time, two sides quoted verbatim from the answers that disagree, then the actual ask --
+ * four distinct things with nothing marking where one ends and the next begins. The label is
+ * the one piece of this that is identical on every such question; each side gets its own line
+ * so two quoted statements are never mistaken for one.
+ */
+.contradiction { display: grid; gap: var(--space-3); }
+.contradiction__label {
+  font-size: var(--text-sm);
+  font-weight: var(--weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+.contradiction__sides {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.contradiction__side { display: grid; gap: var(--space-2); padding-left: var(--space-2); }
+
+/*
  * One control surface for every text field in the application.
  *
  * `.form input` is in the list because it was missing: the sign-in form and the change-password
