@@ -60,11 +60,13 @@ export function parseContradictionQuestion(text: string): ContradictionQuestion 
       text,
     );
   if (!match) return null;
-  const [, first, second, ask] = match;
+  // All three groups are non-optional, so a match fills every one of them -- but they come
+  // back off an array, which `noUncheckedIndexedAccess` widens to `string | undefined`
+  // regardless of what the pattern guarantees.
   return {
     lede: 'These cannot both hold, so nothing is planned until you say which does.',
-    sides: [first, second],
-    ask,
+    sides: [match[1]!, match[2]!],
+    ask: match[3]!,
   };
 }
 
