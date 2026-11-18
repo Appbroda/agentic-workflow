@@ -113,15 +113,9 @@ unfinished, so registering the route or rendering the component is part of the r
 follow-up. `documentation` is
 satisfied only by changing the repository's own documentation -- a Markdown file, or a file under
 its docs directory -- so a requirement carrying that category needs a documentation edit even when
-the code is complete without one. Before writing into an existing documentation file, read what it
-already covers. Extend it only when the addition matches that file's established purpose, scope,
-and audience -- the kind of thing its existing sections already describe. A file that documents
-installation, architecture, or a different subsystem is not the right place for this change's own
-description merely because it already exists in the repository. When nothing already there fits,
-add a new file scoped to the area you changed -- beside the code it describes, or inside the docs
-directory's existing structure -- rather than appending unrelated prose to a file whose own
-purpose is something else. If a category genuinely does not apply to this repository, say so in
-your summary instead of silently omitting it.
+the code is complete without one. Follow the documentation the repository already keeps rather
+than adding a new file beside it. If a category genuinely does not apply to this repository, say
+so in your summary instead of silently omitting it.
 If tests are required but no native test command exists, inspect repository conventions and existing
 dependencies first. Use an existing framework when available; add a framework or configuration only
 when the approved workstream explicitly justifies that dependency change.
