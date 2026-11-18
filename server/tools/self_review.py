@@ -109,7 +109,11 @@ SELF_REVIEW_DIRECTIVE = (
     "- Backing-dependency honesty: when a requirement depends on a real external service this "
     "environment does not provide, is the mock standing in for it declared openly -- in the "
     "test and the summary -- rather than presented as though it exercised the real "
-    "dependency.\n\n"
+    "dependency.\n"
+    "- Documentation fit: when this change edits an existing documentation file, does what it "
+    "adds match that file's established purpose, scope, and audience -- its existing sections "
+    "and subject -- rather than being this change's own description appended because the file "
+    "happened to already exist.\n\n"
     "Classify every finding:\n"
     '- "localized": correctable with a small, bounded edit to files this change already '
     "touches.\n"
