@@ -273,6 +273,24 @@ def test_the_engineer_is_told_not_to_fake_fixtures_or_backing_dependencies() -> 
     assert "mock it the way this repository's own tests already mock" in rendered_prompt
 
 
+def test_the_engineer_is_told_to_match_a_documentation_files_existing_purpose() -> None:
+    """A documentation requirement must land where it fits, not wherever a `.md` already exists.
+
+    The only prior guidance on which file to write into was "follow the documentation the
+    repository already keeps" -- advice with no escape hatch, that pushes a requirement's
+    change-summary into whatever Markdown file happens to already exist, installation guide or
+    not. This makes fit a precondition for reusing an existing file, and gives an explicit
+    fallback -- a new, narrowly scoped file -- instead of forcing a bad one.
+    """
+    rendered_prompt = PromptLoader().render("engineer/v1.jinja2", **_ENGINEER_BASE_CONTEXT)
+
+    assert "Before writing into an existing documentation file, read what it" in rendered_prompt
+    assert "installation, architecture, or a different subsystem is not the right place" in (
+        rendered_prompt
+    )
+    assert "rather than appending unrelated prose to a file whose own" in rendered_prompt
+
+
 def test_the_review_is_told_which_commands_the_platform_will_run() -> None:
     """A demand to execute something needs the list of what can be executed to be bounded by.
 

@@ -580,6 +580,17 @@ def test_the_directive_names_the_two_categories_ab188_added() -> None:
     assert "Backing-dependency honesty" in SELF_REVIEW_DIRECTIVE
 
 
+def test_the_directive_names_documentation_fit() -> None:
+    """A documentation edit that changes the right file in the wrong way is still a defect.
+
+    Same backstop role as the other named categories above: the engineer's own standing
+    instruction on matching a doc file's existing purpose is the primary fix, and this gives
+    self-review one more chance to catch an unrelated change-summary forced into a file whose
+    own purpose is something else.
+    """
+    assert "Documentation fit" in SELF_REVIEW_DIRECTIVE
+
+
 def test_every_drop_is_named_with_its_reason(tmp_path: Path) -> None:
     """The budget mechanics declare each not-fully-shown file in the shared vocabulary."""
     agent = EngineerAgent(
